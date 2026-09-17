@@ -114,51 +114,10 @@
         }
 
         function setupRealtimeUpdates() {
-            if (realtimeChannel || !currentUser) return;
-            const websocketUrl = `${SUPABASE_URL.replace("https", "wss")}/realtime/v1/websocket?apikey=${encodeURIComponent(SUPABASE_KEY)}&vsn=1.0.0`;
-            const socket = new WebSocket(websocketUrl);
-            const channelTopic = `realtime:public:${MEDICAL_TABLE}`;
-
-            socket.addEventListener("open", () => {
-                socket.send(JSON.stringify({
-                    topic: "realtime:system",
-                    event: "access_token",
-                    payload: { access_token: currentUser.access_token },
-                    ref: "0"
-                }));
-                socket.send(JSON.stringify({
-                    topic: channelTopic,
-                    event: "phx_join",
-                    payload: {
-                        config: {
-                            broadcast: { self: false },
-                            presence: { key: "" },
-                            postgres_changes: [{ event: "*", schema: "public", table: MEDICAL_TABLE }]
-                        }
-                    },
-                    ref: "1"
-                }));
-                socket.heartbeatTimer = setInterval(() => {
-                    if (socket.readyState === WebSocket.OPEN) {
-                        socket.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: String(Date.now()) }));
-                    }
-                }, 25000);
-            });
-
-            socket.addEventListener("message", event => {
-                try {
-                    const message = JSON.parse(event.data);
-                    if (message.event === "postgres_changes") loadMedicalRecords();
-                } catch (error) {
-                    console.error("Invalid realtime message", error);
-                }
-            });
-            socket.addEventListener("error", error => console.error("Supabase realtime error", error));
-            socket.addEventListener("close", () => {
-                clearInterval(socket.heartbeatTimer);
-                realtimeChannel = null;
-            });
-            realtimeChannel = socket;
+            // Use the REST polling fallback instead of the raw WebSocket client.
+            // This avoids browser WebSocket/CORS errors while keeping records current.
+            if (medicalRefreshTimer) clearInterval(medicalRefreshTimer);
+            medicalRefreshTimer = setInterval(loadMedicalRecords, 3000);
         }
 
         function setupMedicalRecords() {
