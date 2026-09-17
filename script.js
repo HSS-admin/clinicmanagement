@@ -5,6 +5,7 @@
         const MEDICAL_TABLE = "medical_records";
         const SUPABASE_AUTH_URL = `${SUPABASE_URL}/auth/v1`;
         let realtimeChannel = null;
+        let medicalRefreshTimer = null;
         let currentUser = null;
         const STANDARD_SHIFT_HOURS = 8;
         const HOLIDAYS = ["01-01","02-17","03-20","04-02","04-03","04-04","04-09","05-01","05-27","06-12","08-21","08-31","11-01","11-02","11-30","12-08","12-24","12-25","12-30","12-31","08-30"];
@@ -77,12 +78,21 @@
             els.logoutButton.hidden = false;
             els.signedInUser.textContent = currentUser?.user?.email || "Signed in";
             setupRealtimeUpdates();
+            loadMedicalRecords();
+            clearInterval(medicalRefreshTimer);
+            medicalRefreshTimer = setInterval(loadMedicalRecords, 5000);
         }
 
         function logoutUser() {
             currentUser = null;
             sessionStorage.removeItem("hse_supabase_session");
-            if (realtimeChannel) realtimeChannel.close();
+            if (realtimeChannel) {
+                realtimeChannel.close();
+                realtimeChannel = null;
+            }
+            clearInterval(medicalRefreshTimer);
+            medicalRefreshTimer = null;
+            medicalRecords = [];
             els.authGate.hidden = false;
             els.logoutButton.hidden = true;
             els.signedInUser.textContent = "Not signed in";
@@ -107,13 +117,47 @@
             if (realtimeChannel || !currentUser) return;
             const websocketUrl = `${SUPABASE_URL.replace("https", "wss")}/realtime/v1/websocket?apikey=${encodeURIComponent(SUPABASE_KEY)}&vsn=1.0.0`;
             const socket = new WebSocket(websocketUrl);
+            const channelTopic = `realtime:public:${MEDICAL_TABLE}`;
+
             socket.addEventListener("open", () => {
-                socket.send(JSON.stringify({ topic: "realtime:medical-records", event: "access_token", payload: { access_token: currentUser.access_token }, ref: "0" }));
-                socket.send(JSON.stringify({ topic: "realtime:medical-records", event: "phx_join", payload: { config: { broadcast: { self: false }, presence: { key: "" }, postgres_changes: [{ event: "*", schema: "public", table: MEDICAL_TABLE }] } }, ref: "1" }));
-                socket.heartbeatTimer = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: String(Date.now()) })); }, 25000);
+                socket.send(JSON.stringify({
+                    topic: "realtime:system",
+                    event: "access_token",
+                    payload: { access_token: currentUser.access_token },
+                    ref: "0"
+                }));
+                socket.send(JSON.stringify({
+                    topic: channelTopic,
+                    event: "phx_join",
+                    payload: {
+                        config: {
+                            broadcast: { self: false },
+                            presence: { key: "" },
+                            postgres_changes: [{ event: "*", schema: "public", table: MEDICAL_TABLE }]
+                        }
+                    },
+                    ref: "1"
+                }));
+                socket.heartbeatTimer = setInterval(() => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: String(Date.now()) }));
+                    }
+                }, 25000);
             });
-            socket.addEventListener("message", event => { const message = JSON.parse(event.data); if (message.event === "postgres_changes") loadMedicalRecords(); });
-            socket.addEventListener("close", () => { clearInterval(socket.heartbeatTimer); realtimeChannel = null; });
+
+            socket.addEventListener("message", event => {
+                try {
+                    const message = JSON.parse(event.data);
+                    if (message.event === "postgres_changes") loadMedicalRecords();
+                } catch (error) {
+                    console.error("Invalid realtime message", error);
+                }
+            });
+            socket.addEventListener("error", error => console.error("Supabase realtime error", error));
+            socket.addEventListener("close", () => {
+                clearInterval(socket.heartbeatTimer);
+                realtimeChannel = null;
+            });
             realtimeChannel = socket;
         }
 
@@ -123,13 +167,17 @@
         }
 
         async function loadMedicalRecords() {
+            if (!currentUser?.access_token) return;
             try {
-                medicalRecords = await supabaseRequest(`${MEDICAL_TABLE}?select=*&order=created_at.desc`);
+                const records = await supabaseRequest(`${MEDICAL_TABLE}?select=*&order=created_at.desc`, {
+                    headers: { Prefer: "count=exact" }
+                });
+                medicalRecords = Array.isArray(records) ? records : [];
                 renderMedicalRecords();
                 renderFormStatistics();
             } catch (error) {
-                els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Unable to load records. Create the Supabase table and policies first.</td></tr>`;
-                console.error(error);
+                els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Unable to load records: ${escapeHtml(error.message)}</td></tr>`;
+                console.error("Medical records load failed", error);
             }
         }
 
