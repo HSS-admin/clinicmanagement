@@ -260,6 +260,13 @@ body {
 .btn-danger { background: var(--red); color: #fff; }
 .btn-blue { background: var(--teal); color: #fff; }
 .btn-card { background: var(--teal-soft); color: var(--navy); border: 1px solid #bfe8df; }
+.refresh-records-button { display: inline-flex; align-items: center; gap: .4rem; }
+.refresh-icon { display: inline-block; font-size: 1.1em; line-height: 1; }
+.refresh-records-button.refreshing .refresh-icon { animation: refresh-swirl .7s ease-in-out; }
+@keyframes refresh-swirl {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
 
 .admin-wrap { width: 100%; max-width: 1200px; display: flex; justify-content: flex-end; }
 .admin-toggle { background: #fff; border: 1px solid #b6c7d4; color: var(--navy); padding: .55rem 1rem; border-radius: 22px; cursor: pointer; font-weight: 700; }
@@ -286,6 +293,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--teal); outline: 
 
 .google-form-layout { width: 100%; max-width: 1200px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 1.5rem; }
 .google-form-panel, .form-statistics-card, .medical-records-panel { max-width: none; }
+.medical-records-panel { grid-column: 1 / -1; }
 .form-help { color: var(--muted); font-size: .9rem; margin: .75rem 0 1rem; line-height: 1.5; }
 code { color: var(--teal); }
 .form-access-card { display: flex; align-items: center; gap: 1.5rem; min-height: 260px; padding: 1.5rem; background: linear-gradient(135deg, var(--teal-soft), #fff); border: 1px solid #c6ebe4; border-radius: 12px; }
