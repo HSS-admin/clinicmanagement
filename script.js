@@ -6,6 +6,7 @@
         const SUPABASE_AUTH_URL = `${SUPABASE_URL}/auth/v1`;
         let realtimeChannel = null;
         let medicalRefreshTimer = null;
+        let medicalLoadInProgress = false;
         let currentUser = null;
         let refreshSessionPromise = null;
         const STANDARD_SHIFT_HOURS = 8;
@@ -16,6 +17,9 @@
         ];
         const els = {};
         let medicalRecords = [];
+        let medicalRecordsInitialized = false;
+        let notificationAudioContext = null;
+        let notificationAudioUnlocked = false;
         let editingMedicalRecord = null;
         let metrics = JSON.parse(localStorage.getItem(KEY) || "null") || { maleCount: 45, femaleCount: 30, manualDaysLost: 0, liveSecondsAccumulated: 0, lastTickTimestamp: Date.now(), incidentLogs: [], formResponseCount: 0, formLatestResponse: "No data" };
         let activeSection = "manhoursSection";
@@ -108,10 +112,11 @@
             els.authGate.hidden = true;
             els.logoutButton.hidden = false;
             els.signedInUser.textContent = currentUser?.user?.email || "Signed in";
+            activeSection = "googleFormSection";
+            els.menuItems.forEach(item => item.classList.toggle("active", item.dataset.section === activeSection));
+            els.appSections.forEach(section => section.classList.toggle("active", section.id === activeSection));
             setupRealtimeUpdates();
             loadMedicalRecords();
-            clearInterval(medicalRefreshTimer);
-            medicalRefreshTimer = setInterval(loadMedicalRecords, 5000);
         }
 
         function logoutUser() {
@@ -125,6 +130,7 @@
             clearInterval(medicalRefreshTimer);
             medicalRefreshTimer = null;
             medicalRecords = [];
+            medicalRecordsInitialized = false;
             els.authGate.hidden = false;
             els.logoutButton.hidden = true;
             els.signedInUser.textContent = "Not signed in";
@@ -138,16 +144,43 @@
             els.togglePassword.setAttribute("aria-pressed", String(isHidden));
         }
 
+        function unlockNotificationSound() {
+            if (notificationAudioUnlocked) return;
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            notificationAudioContext = notificationAudioContext || new AudioContext();
+            if (notificationAudioContext.state === "suspended") notificationAudioContext.resume();
+            notificationAudioUnlocked = true;
+        }
+
+        function playNewRecordNotification() {
+            const audioContext = notificationAudioContext;
+            if (!audioContext || audioContext.state === "suspended") return;
+            const now = audioContext.currentTime;
+            [0, 0.14].forEach((offset, index) => {
+                const oscillator = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                oscillator.type = "sine";
+                oscillator.frequency.value = index ? 880 : 660;
+                gain.gain.setValueAtTime(0.0001, now + offset);
+                gain.gain.exponentialRampToValueAtTime(0.16, now + offset + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.18);
+                oscillator.connect(gain).connect(audioContext.destination);
+                oscillator.start(now + offset);
+                oscillator.stop(now + offset + 0.2);
+            });
+        }
+
         function setupAuth() {
             els.loginForm.addEventListener("submit", signInUser);
+            els.loginForm.addEventListener("pointerdown", unlockNotificationSound, { once: true });
             els.togglePassword.addEventListener("click", togglePasswordVisibility);
             try { currentUser = JSON.parse(sessionStorage.getItem("hse_supabase_session") || "null"); } catch { currentUser = null; }
             if (currentUser?.access_token) showAuthenticatedApp();
         }
 
         function setupRealtimeUpdates() {
-            // Use the REST polling fallback instead of the raw WebSocket client.
-            // This avoids browser WebSocket/CORS errors while keeping records current.
+            // Poll the REST endpoint so new Google Form rows appear without reloading.
             if (medicalRefreshTimer) clearInterval(medicalRefreshTimer);
             medicalRefreshTimer = setInterval(loadMedicalRecords, 3000);
         }
@@ -157,18 +190,45 @@
             if (currentUser) loadMedicalRecords();
         }
 
+        function animateRefreshButtons() {
+            document.querySelectorAll(".refresh-records-button").forEach(button => {
+                button.classList.remove("refreshing");
+                void button.offsetWidth;
+                button.classList.add("refreshing");
+                button.addEventListener("animationend", () => button.classList.remove("refreshing"), { once: true });
+            });
+        }
+
         async function loadMedicalRecords() {
-            if (!currentUser?.access_token) return;
+            animateRefreshButtons();
+            if (!currentUser?.access_token || medicalLoadInProgress) return;
+            medicalLoadInProgress = true;
             try {
-                const records = await supabaseRequest(`${MEDICAL_TABLE}?select=*&order=created_at.desc`, {
-                    headers: { Prefer: "count=exact" }
-                });
-                medicalRecords = Array.isArray(records) ? records : [];
+                // Match the actual medical_records schema and let PostgREST return newest rows first.
+                const records = await supabaseRequest(
+                    `${MEDICAL_TABLE}?select=id,created_at,form_details,vitals_bp,vitals_o2,vitals_pulse_rate,vitals_temperature,medicine_given,attending_staff,chief_complaint,diagnosis,recommendation&order=created_at.desc`,
+                    {
+                        cache: "no-store",
+                        headers: {
+                            Prefer: "count=exact",
+                            "Cache-Control": "no-cache",
+                            "Pragma": "no-cache"
+                        }
+                    }
+                );
+                const nextRecords = Array.isArray(records) ? records : [];
+                const hasNewRecords = medicalRecordsInitialized && nextRecords.length > medicalRecords.length;
+                medicalRecords = nextRecords;
+                medicalRecordsInitialized = true;
+                if (hasNewRecords) playNewRecordNotification();
                 renderMedicalRecords();
                 renderFormStatistics();
             } catch (error) {
-                els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Unable to load records: ${escapeHtml(error.message)}</td></tr>`;
+                const message = error?.message || "Unknown Supabase error";
+                els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Unable to load records: ${escapeHtml(message)}<br><small>Check Supabase RLS SELECT policy for authenticated users.</small></td></tr>`;
                 console.error("Medical records load failed", error);
+            } finally {
+                medicalLoadInProgress = false;
             }
         }
 
@@ -176,9 +236,23 @@
         function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[char])); }
         function topTen(field) { const counts = {}; medicalRecords.forEach(record => { const value = recordValue(record, field); if (value) counts[value] = (counts[value] || 0) + 1; }); return Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 10).map(([name,count], index) => `<div>${index + 1}. ${escapeHtml(name)} <strong>${count}</strong></div>`).join("") || "No data"; }
 
+        function formDetails(record) {
+            // form_details is jsonb in the medical_records table.
+            const raw = record?.form_details ?? {};
+            if (typeof raw === "object" && raw !== null) return raw;
+            if (typeof raw === "string") {
+                try {
+                    const parsed = JSON.parse(raw);
+                    return parsed && typeof parsed === "object" ? parsed : {};
+                } catch {
+                    return {};
+                }
+            }
+            return {};
+        }
+
         function detailValue(record, names) {
-            const details = record.form_details || record.google_form_details || {};
-            if (typeof details !== "object" || details === null) return "";
+            const details = formDetails(record);
             const key = Object.keys(details).find(name => names.some(target => name.toLowerCase().trim() === target.toLowerCase().trim()));
             return key ? String(details[key] ?? "").trim() : "";
         }
@@ -205,7 +279,12 @@
 
         function renderMedicalRecords() {
             els.topMedicines.innerHTML = topTen(["medicine_given"]); els.topComplaints.innerHTML = topTen(["chief_complaint"]); els.topDiagnoses.innerHTML = topTen(["diagnosis"]);
-            els.medicalRecordsBody.innerHTML = medicalRecords.length ? medicalRecords.map((record, index) => `<tr><td>${escapeHtml(recordValue(record,["created_at","timestamp"]))}</td><td>${escapeHtml(JSON.stringify(record.form_details || record.google_form_details || record))}</td><td>${escapeHtml([record.vitals_bp,record.vitals_o2,record.vitals_pulse_rate,record.vitals_temperature].filter(Boolean).join(" | "))}</td><td>${escapeHtml(record.medicine_given)}</td><td>${escapeHtml(record.attending_staff || record.attending_nurse_or_doctor)}</td><td>${escapeHtml(record.chief_complaint)}</td><td>${escapeHtml(record.diagnosis)}</td><td>${escapeHtml(record.recommendation)}</td><td><button class="edit" onclick="openMedicalRecordModal(${index})">Edit</button></td></tr>`).join("") : `<tr><td colspan="9" class="no-log">No medical records found.</td></tr>`;
+            els.medicalRecordsBody.innerHTML = medicalRecords.length ? medicalRecords.map((record, index) => {
+                const details = formDetails(record);
+                const submitted = record.created_at;
+                const formText = Object.entries(details).map(([key, value]) => `${key}: ${value}`).join(" | ");
+                return `<tr><td>${escapeHtml(submitted ? new Date(submitted).toLocaleString("en-PH") : "No date")}</td><td>${escapeHtml(formText || "No Google Form details")}</td><td>${escapeHtml([record.vitals_bp,record.vitals_o2,record.vitals_pulse_rate,record.vitals_temperature].filter(Boolean).join(" | "))}</td><td>${escapeHtml(record.medicine_given)}</td><td>${escapeHtml(record.attending_staff)}</td><td>${escapeHtml(record.chief_complaint)}</td><td>${escapeHtml(record.diagnosis)}</td><td>${escapeHtml(record.recommendation)}</td><td><button class="edit" onclick="openMedicalRecordModal(${index})">Edit</button></td></tr>`;
+            }).join("") : `<tr><td colspan="9" class="no-log">No medical records found.</td></tr>`;
         }
         function openMedicalRecordModal(index) { editingMedicalRecord = medicalRecords[index]; ["Bp","O2","Pulse","Temp","Staff","Complaint","Diagnosis","Recommendation"].forEach(name => els[`record${name}`].value = ""); els.recordBp.value = editingMedicalRecord.vitals_bp || ""; els.recordO2.value = editingMedicalRecord.vitals_o2 || ""; els.recordPulse.value = editingMedicalRecord.vitals_pulse_rate || ""; els.recordTemp.value = editingMedicalRecord.vitals_temperature || ""; els.recordMedicine.value = editingMedicalRecord.medicine_given || ""; els.recordStaff.value = editingMedicalRecord.attending_staff || editingMedicalRecord.attending_nurse_or_doctor || ""; els.recordComplaint.value = editingMedicalRecord.chief_complaint || ""; els.recordDiagnosis.value = editingMedicalRecord.diagnosis || ""; els.recordRecommendation.value = editingMedicalRecord.recommendation || "Clinic Rest"; els.medicalRecordModal.classList.add("visible"); }
         function closeMedicalRecordModal() { els.medicalRecordModal.classList.remove("visible"); editingMedicalRecord = null; }
@@ -609,10 +688,10 @@
         }
 
         cache();
-        setupAuth();
         setupNavigation();
         setupGoogleForm();
         setupMedicalRecords();
+        setupAuth();
         resumeElapsedTime();
         updateClock();
         save();
