@@ -26,7 +26,7 @@
         <form class="auth-card" id="loginForm">
             <div class="auth-mark">✚</div>
             <h2>HSE Dashboard Login</h2>
-            <p class="form-help">Sign in with your Supabase account to view records and update clinical details.</p>
+            <p class="form-help">Sign in with your account to view records and update clinical details.</p>
             <div class="group"><label for="loginEmail">Email address</label><input id="loginEmail" type="email" autocomplete="email" required></div>
             <div class="group"><label for="loginPassword">Password</label><div class="password-field"><input id="loginPassword" type="password" autocomplete="current-password" required><button class="password-toggle" id="togglePassword" type="button" aria-label="Show password" aria-pressed="false">◉</button></div></div>
             <p class="auth-error" id="authError" role="alert"></p>
@@ -135,8 +135,8 @@
                     <div class="qr-placeholder"><img src="google-form-qr.png" alt="Scan QR code to open the Google Form"></div>
                     <div>
                         <h3>Scan to submit a medical record</h3>
-                        <p class="form-help">Users submit through Google Forms separately. Submissions are sent to Supabase and appear in the Medical Records table below.</p>
-                        <p class="form-help"><strong>QR code:</strong> Add your QR image as <code>google-form-qr.png</code> beside this page, then it will be displayed here.</p>
+                        <p class="form-help">Users submit through Google Forms separately and appear in the Medical Records table below.</p>
+                        
                     </div>
                 </div>
             </div>
@@ -150,7 +150,7 @@
                     <div class="stat-item"><span>Female Employees</span><strong id="formFemaleCount">0</strong></div>
                     <div class="stat-item"><span>Latest Response</span><strong id="formLatestResponse">No data</strong></div>
                 </div>
-                <p class="form-help">Statistics are calculated from the Supabase medical_records table. Employee and gender values are read from the original Google Form details.</p>
+                <p class="form-help">Statistics are calculated from the medical_records table. Employee and gender values are read from the original Google Form details.</p>
                 <div class="actions">
                     <button class="btn btn-card" type="button" onclick="loadMedicalRecords()">↻ Refresh Statistics</button>
                     <button class="btn btn-primary" type="button" onclick="downloadMedicalReport()">📥 Download Top 10 Report</button>
@@ -162,7 +162,7 @@
                     <h2 class="panel-title" style="margin-bottom:0">Medical Records</h2>
                     <button class="btn btn-card" type="button" onclick="loadMedicalRecords()">↻ Refresh Records</button>
                 </div>
-                <p class="form-help">Google Form submissions are stored in Supabase. Nurses and administrators can update the clinical details below.</p>
+                <p class="form-help">Google Form submissions are stored. Nurses and administrators can update the clinical details below.</p>
                 <div class="top-ten-grid">
                     <div class="stat-item"><span>Top 10 Medicines</span><div id="topMedicines" class="ranking-list">No data</div></div>
                     <div class="stat-item"><span>Top 10 Chief Complaints</span><div id="topComplaints" class="ranking-list">No data</div></div>
