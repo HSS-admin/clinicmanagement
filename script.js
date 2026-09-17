@@ -7,6 +7,7 @@
         let realtimeChannel = null;
         let medicalRefreshTimer = null;
         let currentUser = null;
+        let refreshSessionPromise = null;
         const STANDARD_SHIFT_HOURS = 8;
         const HOLIDAYS = ["01-01","02-17","03-20","04-02","04-03","04-04","04-09","05-01","05-27","06-12","08-21","08-31","11-01","11-02","11-30","12-08","12-24","12-25","12-30","12-31","08-30"];
         const KEY = "hse_dashboard_metrics";
@@ -55,9 +56,39 @@
             renderFormStatistics();
         }
 
-        function supabaseRequest(path, options = {}) {
+        function saveSession() {
+            if (currentUser) sessionStorage.setItem("hse_supabase_session", JSON.stringify(currentUser));
+        }
+
+        async function refreshSupabaseSession() {
+            if (!currentUser?.refresh_token) return false;
+            if (refreshSessionPromise) return refreshSessionPromise;
+            refreshSessionPromise = fetch(`${SUPABASE_AUTH_URL}/token?grant_type=refresh_token`, {
+                method: "POST",
+                headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+                body: JSON.stringify({ refresh_token: currentUser.refresh_token })
+            }).then(async response => {
+                if (!response.ok) return false;
+                const session = await response.json();
+                currentUser = { ...currentUser, ...session };
+                saveSession();
+                return true;
+            }).catch(() => false).finally(() => {
+                refreshSessionPromise = null;
+            });
+            return refreshSessionPromise;
+        }
+
+        async function supabaseRequest(path, options = {}, hasRetried = false) {
             const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${currentUser?.access_token || SUPABASE_KEY}`, "Content-Type": "application/json", ...(options.headers || {}) };
-            return fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...options, headers }).then(async response => { if (!response.ok) throw new Error(await response.text()); return response.status === 204 ? null : response.json(); });
+            const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...options, headers });
+            if (response.status === 401 || response.status === 403) {
+                const body = await response.clone().text();
+                const expired = response.status === 401 || body.includes("JWT expired") || body.includes("PGRST303");
+                if (expired && !hasRetried && await refreshSupabaseSession()) return supabaseRequest(path, options, true);
+            }
+            if (!response.ok) throw new Error(await response.text());
+            return response.status === 204 ? null : response.json();
         }
 
         async function signInUser(event) {
@@ -67,7 +98,7 @@
                 const response = await fetch(`${SUPABASE_AUTH_URL}/token?grant_type=password`, { method: "POST", headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ email: els.loginEmail.value.trim(), password: els.loginPassword.value }) });
                 if (!response.ok) throw new Error((await response.json()).msg || "Invalid email or password.");
                 currentUser = await response.json();
-                sessionStorage.setItem("hse_supabase_session", JSON.stringify(currentUser));
+                saveSession();
                 showAuthenticatedApp();
                 loadMedicalRecords();
             } catch (error) { els.authError.textContent = error.message || "Unable to sign in."; }
@@ -85,6 +116,7 @@
 
         function logoutUser() {
             currentUser = null;
+            refreshSessionPromise = null;
             sessionStorage.removeItem("hse_supabase_session");
             if (realtimeChannel) {
                 realtimeChannel.close();
