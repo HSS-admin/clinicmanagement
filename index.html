@@ -152,7 +152,7 @@
                 </div>
                 <p class="form-help">Statistics are calculated from the medical_records table. Employee and gender values are read from the original Google Form details.</p>
                 <div class="actions">
-                    <button class="btn btn-card" type="button" onclick="loadMedicalRecords()">↻ Refresh Statistics</button>
+                    <button class="btn btn-card refresh-records-button" type="button" onclick="loadMedicalRecords()"><span class="refresh-icon" aria-hidden="true">↻</span> Refresh Statistics</button>
                     <button class="btn btn-primary" type="button" onclick="downloadMedicalReport()">📥 Download Top 10 Report</button>
                 </div>
             </section>
@@ -160,7 +160,7 @@
             <section class="panel medical-records-panel">
                 <div class="header-row">
                     <h2 class="panel-title" style="margin-bottom:0">Medical Records</h2>
-                    <button class="btn btn-card" type="button" onclick="loadMedicalRecords()">↻ Refresh Records</button>
+                    <button class="btn btn-card refresh-records-button" type="button" onclick="loadMedicalRecords()"><span class="refresh-icon" aria-hidden="true">↻</span> Refresh Records</button>
                 </div>
                 <p class="form-help">Google Form submissions are stored. Nurses and administrators can update the clinical details below.</p>
                 <div class="top-ten-grid">
