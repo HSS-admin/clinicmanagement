@@ -1,5 +1,11 @@
         const ADMIN_PASSWORD = "admin123";
         const GOOGLE_FORM_URL = "https://forms.gle/gGK2eZs595GSyFWv6";
+        // Set this to the deployed Google Apps Script web-app URL to use the spreadsheet.
+        // Leave blank to keep using the existing Supabase medical_records table.
+        // Add the deployed Apps Script /exec URL here after deploying the Sheets API.
+        // A placeholder URL must remain disabled; otherwise every refresh fails with "Failed to fetch".
+        const GOOGLE_SHEETS_API_URL = "";
+        const GOOGLE_SHEET_TAB = "Form Responses 1";
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
         const SUPABASE_KEY = "sb_publishable_AEa9iIzus4ziOzax0wcH6w_3aHz_evn";
         const MEDICAL_TABLE = "medical_records";
@@ -7,6 +13,7 @@
         let realtimeChannel = null;
         let medicalRefreshTimer = null;
         let medicalLoadInProgress = false;
+        let medicalLoadQueued = false;
         let currentUser = null;
         let refreshSessionPromise = null;
         const STANDARD_SHIFT_HOURS = 8;
@@ -36,7 +43,7 @@
         if (typeof metrics.lastTickTimestamp !== "number") metrics.lastTickTimestamp = Date.now();
 
         function cache() {
-            ["liveClock","authGate","loginForm","loginEmail","loginPassword","togglePassword","authError","signedInUser","logoutButton","googleFormFrame","googleFormOpenLink","formResponseCount","formEmployeeCount","formMaleCount","formFemaleCount","formLatestResponse","formResponseInput","displayPeriodHours","periodSelect","displayHoursLost","displayDaysLost","displayTotalCount","displayMaleCount","displayFemaleCount","displayIncidentFreeDays","displayRatio","displayCompliance","adminPanelModal","inputMale","inputFemale","inputDaysLost","adminPassword","incidentLogBody","incidentModal","incidentDateTimeInput","incidentPersonInput","incidentTypeInput","incidentNatureInput","incidentCauseInput","incidentDaysAbsentInput","incidentSummaryInput","incidentPasswordInput","modalTitle","passwordModal","passwordInput","monthList","medicalRecordModal","medicalRecordsBody","topMedicines","topComplaints","topDiagnoses","recordBp","recordO2","recordPulse","recordTemp","recordMedicine","recordStaff","recordComplaint","recordDiagnosis","recordRecommendation"].forEach(id => els[id] = document.getElementById(id));
+            ["liveClock","authGate","loginForm","loginEmail","loginPassword","togglePassword","authError","signedInUser","logoutButton","googleFormFrame","googleFormOpenLink","formResponseCount","formEmployeeCount","formMaleCount","formFemaleCount","formLatestResponse","formResponseInput","medicalSyncStatus","displayPeriodHours","periodSelect","displayHoursLost","displayDaysLost","displayTotalCount","displayMaleCount","displayFemaleCount","displayIncidentFreeDays","displayRatio","displayCompliance","adminPanelModal","inputMale","inputFemale","inputDaysLost","adminPassword","incidentLogBody","incidentModal","incidentDateTimeInput","incidentPersonInput","incidentTypeInput","incidentNatureInput","incidentCauseInput","incidentDaysAbsentInput","incidentSummaryInput","incidentPasswordInput","modalTitle","passwordModal","passwordInput","monthList","medicalRecordModal","medicalRecordsBody","topMedicines","topComplaints","topDiagnoses","recordBp","recordO2","recordPulse","recordTemp","recordMedicine","recordStaff","recordComplaint","recordDiagnosis","recordRecommendation"].forEach(id => els[id] = document.getElementById(id));
             els.menuItems = document.querySelectorAll(".menu-item");
             els.appSections = document.querySelectorAll(".app-section");
         }
@@ -46,6 +53,7 @@
                 activeSection = button.dataset.section;
                 els.menuItems.forEach(item => item.classList.toggle("active", item === button));
                 els.appSections.forEach(section => section.classList.toggle("active", section.id === activeSection));
+                if (activeSection === "googleFormSection") loadMedicalRecords();
             }));
         }
 
@@ -122,6 +130,8 @@
         function logoutUser() {
             currentUser = null;
             refreshSessionPromise = null;
+            medicalLoadInProgress = false;
+            medicalLoadQueued = false;
             sessionStorage.removeItem("hse_supabase_session");
             if (realtimeChannel) {
                 realtimeChannel.close();
@@ -134,6 +144,15 @@
             els.authGate.hidden = false;
             els.logoutButton.hidden = true;
             els.signedInUser.textContent = "Not signed in";
+            els.loginForm.reset();
+            els.loginPassword.type = "password";
+            els.togglePassword.textContent = "◉";
+            els.togglePassword.setAttribute("aria-label", "Show password");
+            els.togglePassword.setAttribute("aria-pressed", "false");
+            els.authError.textContent = "";
+            els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Sign in to load medical records.</td></tr>`;
+            setMedicalSyncStatus("Waiting for sign-in");
+            renderFormStatistics();
         }
 
         function togglePasswordVisibility() {
@@ -179,10 +198,21 @@
             if (currentUser?.access_token) showAuthenticatedApp();
         }
 
+        function setMedicalSyncStatus(text, state = "") {
+            if (!els.medicalSyncStatus) return;
+            els.medicalSyncStatus.textContent = text;
+            els.medicalSyncStatus.parentElement.className = `sync-status ${state}`.trim();
+        }
+
         function setupRealtimeUpdates() {
-            // Poll the REST endpoint so new Google Form rows appear without reloading.
+            // Polling keeps Google Form rows current even when no realtime bridge is configured.
             if (medicalRefreshTimer) clearInterval(medicalRefreshTimer);
-            medicalRefreshTimer = setInterval(loadMedicalRecords, 3000);
+            medicalRefreshTimer = setInterval(() => {
+                if (document.visibilityState === "visible") loadMedicalRecords();
+            }, 3000);
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "visible" && currentUser?.access_token) loadMedicalRecords();
+            });
         }
 
         function setupMedicalRecords() {
@@ -201,12 +231,43 @@
 
         async function loadMedicalRecords() {
             animateRefreshButtons();
-            if (!currentUser?.access_token || medicalLoadInProgress) return;
+            if (!currentUser?.access_token) {
+                setMedicalSyncStatus("Waiting for sign-in");
+                return;
+            }
+            if (medicalLoadInProgress) {
+                medicalLoadQueued = true;
+                return;
+            }
             medicalLoadInProgress = true;
+            setMedicalSyncStatus("Syncing records…", "syncing");
             try {
-                // Match the actual medical_records schema and let PostgREST return newest rows first.
+                if (GOOGLE_SHEETS_API_URL) {
+                    const response = await fetch(`${GOOGLE_SHEETS_API_URL}?action=list&sheet=${encodeURIComponent(GOOGLE_SHEET_TAB)}`, {
+                        cache: "no-store",
+                        headers: { Authorization: `Bearer ${currentUser.access_token}` }
+                    });
+                    if (!response.ok) throw new Error(await response.text());
+                    const payload = await response.json();
+                    const nextRecords = (Array.isArray(payload) ? payload : payload.records || []).map(record => ({
+                        ...record,
+                        id: String(record.id ?? record.rowNumber ?? "")
+                    }));
+                    const previousIds = new Set(medicalRecords.map(record => String(record.id)));
+                    const hasNewRecords = medicalRecordsInitialized && nextRecords.some(record => !previousIds.has(String(record.id)));
+                    medicalRecords = nextRecords;
+                    medicalRecordsInitialized = true;
+                    if (hasNewRecords) playNewRecordNotification();
+                    renderMedicalRecords();
+                    renderFormStatistics();
+                    setMedicalSyncStatus(`Live • ${medicalRecords.length.toLocaleString()} record${medicalRecords.length === 1 ? "" : "s"} • Updated ${new Date().toLocaleTimeString()}`, "connected");
+                    return;
+                }
+                // Fetch every column so a missing optional column cannot block all rows.
+                // Google Forms data must first be inserted into medical_records by the
+                // form integration/automation; this page reads that Supabase table.
                 const records = await supabaseRequest(
-                    `${MEDICAL_TABLE}?select=id,created_at,form_details,vitals_bp,vitals_o2,vitals_pulse_rate,vitals_temperature,medicine_given,attending_staff,chief_complaint,diagnosis,recommendation&order=created_at.desc`,
+                    `${MEDICAL_TABLE}?select=*`,
                     {
                         cache: "no-store",
                         headers: {
@@ -216,23 +277,42 @@
                         }
                     }
                 );
-                const nextRecords = Array.isArray(records) ? records : [];
-                const hasNewRecords = medicalRecordsInitialized && nextRecords.length > medicalRecords.length;
+                const nextRecords = (Array.isArray(records) ? records : []).sort((a, b) => {
+                    const dateA = new Date(recordValue(a, ["created_at", "timestamp", "submitted_at"])).getTime() || 0;
+                    const dateB = new Date(recordValue(b, ["created_at", "timestamp", "submitted_at"])).getTime() || 0;
+                    return dateB - dateA;
+                });
+                const previousIds = new Set(medicalRecords.map(record => String(record.id)));
+                const hasNewRecords = medicalRecordsInitialized && nextRecords.some(record => !previousIds.has(String(record.id)));
                 medicalRecords = nextRecords;
                 medicalRecordsInitialized = true;
                 if (hasNewRecords) playNewRecordNotification();
                 renderMedicalRecords();
                 renderFormStatistics();
+                setMedicalSyncStatus(`Live • ${medicalRecords.length.toLocaleString()} record${medicalRecords.length === 1 ? "" : "s"} • Updated ${new Date().toLocaleTimeString()}`, "connected");
             } catch (error) {
-                const message = error?.message || "Unknown Supabase error";
-                els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Unable to load records: ${escapeHtml(message)}<br><small>Check Supabase RLS SELECT policy for authenticated users.</small></td></tr>`;
-                console.error("Medical records load failed", error);
+                const message = error?.message || "Unknown connection error";
+                const source = GOOGLE_SHEETS_API_URL ? "Google Sheets Apps Script" : "Supabase";
+                setMedicalSyncStatus("Sync failed — retrying automatically");
+                const setupMessage = GOOGLE_SHEETS_API_URL
+                    ? "Confirm that the Apps Script URL is deployed as a web app and allows requests from this page."
+                    : `Set GOOGLE_SHEETS_API_URL in script.js to your deployed Apps Script /exec URL. Supabase is only a fallback and is not the Google Form spreadsheet.`;
+                els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Unable to load records from ${source}: ${escapeHtml(message)}<br><small>${escapeHtml(setupMessage)}</small></td></tr>`;
+                console.error("Medical records load failed", { message, source, table: MEDICAL_TABLE, url: GOOGLE_SHEETS_API_URL || SUPABASE_URL });
             } finally {
                 medicalLoadInProgress = false;
+                if (medicalLoadQueued) {
+                    medicalLoadQueued = false;
+                    loadMedicalRecords();
+                }
             }
         }
 
-        function recordValue(record, names) { const key = Object.keys(record || {}).find(name => names.includes(name.toLowerCase())); return key ? record[key] : ""; }
+        function recordValue(record, names) {
+            const wanted = names.map(name => name.toLowerCase());
+            const key = Object.keys(record || {}).find(name => wanted.includes(name.toLowerCase()));
+            return key ? record[key] : "";
+        }
         function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[char])); }
         function topTen(field) { const counts = {}; medicalRecords.forEach(record => { const value = recordValue(record, field); if (value) counts[value] = (counts[value] || 0) + 1; }); return Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 10).map(([name,count], index) => `<div>${index + 1}. ${escapeHtml(name)} <strong>${count}</strong></div>`).join("") || "No data"; }
 
@@ -288,7 +368,37 @@
         }
         function openMedicalRecordModal(index) { editingMedicalRecord = medicalRecords[index]; ["Bp","O2","Pulse","Temp","Staff","Complaint","Diagnosis","Recommendation"].forEach(name => els[`record${name}`].value = ""); els.recordBp.value = editingMedicalRecord.vitals_bp || ""; els.recordO2.value = editingMedicalRecord.vitals_o2 || ""; els.recordPulse.value = editingMedicalRecord.vitals_pulse_rate || ""; els.recordTemp.value = editingMedicalRecord.vitals_temperature || ""; els.recordMedicine.value = editingMedicalRecord.medicine_given || ""; els.recordStaff.value = editingMedicalRecord.attending_staff || editingMedicalRecord.attending_nurse_or_doctor || ""; els.recordComplaint.value = editingMedicalRecord.chief_complaint || ""; els.recordDiagnosis.value = editingMedicalRecord.diagnosis || ""; els.recordRecommendation.value = editingMedicalRecord.recommendation || "Clinic Rest"; els.medicalRecordModal.classList.add("visible"); }
         function closeMedicalRecordModal() { els.medicalRecordModal.classList.remove("visible"); editingMedicalRecord = null; }
-        async function saveMedicalRecord() { if (!editingMedicalRecord?.id) return alert("This record has no id column and cannot be edited."); const update = { vitals_bp: els.recordBp.value.trim(), vitals_o2: els.recordO2.value.trim(), vitals_pulse_rate: els.recordPulse.value.trim(), vitals_temperature: els.recordTemp.value.trim(), medicine_given: els.recordMedicine.value, attending_staff: els.recordStaff.value.trim(), chief_complaint: els.recordComplaint.value.trim(), diagnosis: els.recordDiagnosis.value.trim(), recommendation: els.recordRecommendation.value }; try { await supabaseRequest(`${MEDICAL_TABLE}?id=eq.${encodeURIComponent(editingMedicalRecord.id)}`, { method:"PATCH", body: JSON.stringify(update), headers:{ Prefer:"return=minimal" } }); closeMedicalRecordModal(); loadMedicalRecords(); } catch (error) { alert("Unable to save this medical record."); console.error(error); } }
+        async function saveMedicalRecord() {
+            if (!editingMedicalRecord?.id) return alert("This record has no row identifier and cannot be edited.");
+            const update = {
+                vitals_bp: els.recordBp.value.trim(),
+                vitals_o2: els.recordO2.value.trim(),
+                vitals_pulse_rate: els.recordPulse.value.trim(),
+                vitals_temperature: els.recordTemp.value.trim(),
+                medicine_given: els.recordMedicine.value,
+                attending_staff: els.recordStaff.value.trim(),
+                chief_complaint: els.recordComplaint.value.trim(),
+                diagnosis: els.recordDiagnosis.value.trim(),
+                recommendation: els.recordRecommendation.value
+            };
+            try {
+                if (GOOGLE_SHEETS_API_URL) {
+                    const response = await fetch(GOOGLE_SHEETS_API_URL, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentUser.access_token}` },
+                        body: JSON.stringify({ action: "update", sheet: GOOGLE_SHEET_TAB, rowNumber: editingMedicalRecord.rowNumber || editingMedicalRecord.id, fields: update })
+                    });
+                    if (!response.ok) throw new Error(await response.text());
+                } else {
+                    await supabaseRequest(`${MEDICAL_TABLE}?id=eq.${encodeURIComponent(editingMedicalRecord.id)}`, { method:"PATCH", body: JSON.stringify(update), headers:{ Prefer:"return=minimal" } });
+                }
+                closeMedicalRecordModal();
+                loadMedicalRecords();
+            } catch (error) {
+                alert("Unable to save this medical record.");
+                console.error(error);
+            }
+        }
 
         function renderFormStatistics() {
             const summary = getFormSummary();
