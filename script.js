@@ -1,5 +1,5 @@
         const ADMIN_PASSWORD = "admin123";
-        const GOOGLE_FORM_URL = "https://urldefense.com/v3/__https://docs.google.com/forms/d/e/1FAIpQLSfhtfSV87zlJ1vzjxXqAIJhu_xgewLZ4EQFm_Bau5mvu950fQ/viewform__;!!La4veWw!0ojXN5bqPX2-rFoWrLqnVpYlLTk08eSnU4gMKNWVLwXgJ8bWUUj8NB80B8F8vaNvRRwHnO7Jhdo4V7PXvwej$";
+        const GOOGLE_FORM_URL = "https://forms.gle/gGK2eZs595GSyFWv6";
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
         const SUPABASE_KEY = "sb_publishable_AEa9iIzus4ziOzax0wcH6w_3aHz_evn";
         const MEDICAL_TABLE = "medical_records";
