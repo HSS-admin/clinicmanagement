@@ -4,8 +4,9 @@
         // Leave blank to keep using the existing Supabase medical_records table.
         // Add the deployed Apps Script /exec URL here after deploying the Sheets API.
         // A placeholder URL must remain disabled; otherwise every refresh fails with "Failed to fetch".
-        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbwi9UgN97dPykD6Z7MdW4vp14FLqFqdzmi37h60gq9CsN3awJZO1l3nnDlQqe2Z7WbdLQ/exec";
+        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycby6DAkc28TumHkuSQHjTU3_3zyDKiHk-ODNKxqq1s2zJdJ6XGVVovhmmmPXkhssa1DQgQ/exec";
         const GOOGLE_SHEET_TAB = "Form Responses 1";
+        const GOOGLE_SHEETS_REQUEST_TIMEOUT_MS = 30000;
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
         const SUPABASE_KEY = "sb_publishable_AEa9iIzus4ziOzax0wcH6w_3aHz_evn";
         const MEDICAL_TABLE = "medical_records";
@@ -25,6 +26,7 @@
         const els = {};
         let medicalRecords = [];
         let medicalRecordsInitialized = false;
+        const pendingMedicalUpdates = new Map();
         let notificationAudioContext = null;
         let notificationAudioUnlocked = false;
         let editingMedicalRecord = null;
@@ -209,8 +211,8 @@
             // Polling keeps Google Form rows current even when no realtime bridge is configured.
             if (medicalRefreshTimer) clearInterval(medicalRefreshTimer);
             medicalRefreshTimer = setInterval(() => {
-                if (document.visibilityState === "visible") loadMedicalRecords();
-            }, 3000);
+                if (document.visibilityState === "visible" && activeSection === "googleFormSection") loadMedicalRecords();
+            }, 10000);
             document.addEventListener("visibilitychange", () => {
                 if (document.visibilityState === "visible" && currentUser?.access_token) loadMedicalRecords();
             });
@@ -264,15 +266,41 @@
                     // redirects, permissions, or an outdated deployment version. If that
                     // happens, continue with the authenticated Supabase fallback below.
                     try {
-                        const payload = await googleSheetsRequest(`${GOOGLE_SHEETS_API_URL}?action=list&sheet=${encodeURIComponent(GOOGLE_SHEET_TAB)}&accessToken=${encodeURIComponent(currentUser.access_token)}`, {
-                            method: "GET",
-                            cache: "no-store"
+                        const payload = await googleSheetsRequest(`${GOOGLE_SHEETS_API_URL}?action=list&sheet=${encodeURIComponent(GOOGLE_SHEET_TAB)}&accessToken=${encodeURIComponent(currentUser.access_token)}&_ts=${Date.now()}`, {
+                            method: "GET"
                         });
                         const sheetHeaders = payload.headers || payload.header || payload.columns || payload.data?.headers || [];
                         const rawRecords = Array.isArray(payload)
                             ? payload
                             : (payload.records || payload.rows || payload.data?.records || payload.data?.rows || payload.data?.values || []);
                         const nextRecords = rawRecords.map(record => normalizeMedicalRecord(record, sheetHeaders));
+                        nextRecords.forEach(record => {
+                            const pendingUpdate = pendingMedicalUpdates.get(String(record.id));
+                            if (!pendingUpdate) return;
+
+                            // Apps Script returns the sheet's question headers, while the
+                            // update payload uses database-style field names. Compare the
+                            // displayed clinical values, not the raw property names.
+                            const serverHasUpdate = Object.entries(pendingUpdate).every(([key, value]) => {
+                                const aliasesByField = {
+                                    vitals_bp: MEDICAL_FIELD_ALIASES.bp,
+                                    vitals_o2: MEDICAL_FIELD_ALIASES.o2,
+                                    vitals_pulse_rate: MEDICAL_FIELD_ALIASES.pulse,
+                                    vitals_temperature: MEDICAL_FIELD_ALIASES.temp,
+                                    medicine_given: MEDICAL_FIELD_ALIASES.medicine,
+                                    attending_staff: MEDICAL_FIELD_ALIASES.staff,
+                                    chief_complaint: MEDICAL_FIELD_ALIASES.complaint,
+                                    diagnosis: MEDICAL_FIELD_ALIASES.diagnosis,
+                                    recommendation: MEDICAL_FIELD_ALIASES.recommendation
+                                };
+                                return String(clinicalValue(record, aliasesByField[key] || [key]) ?? "").trim() === String(value ?? "").trim();
+                            });
+
+                            // Keep the optimistic values until the list endpoint confirms
+                            // that the spreadsheet row has actually been updated.
+                            if (!serverHasUpdate) Object.assign(record, pendingUpdate);
+                            else pendingMedicalUpdates.delete(String(record.id));
+                        });
                         const previousIds = new Set(medicalRecords.map(record => String(record.id)));
                         const hasNewRecords = medicalRecordsInitialized && nextRecords.some(record => !previousIds.has(String(record.id)));
                         medicalRecords = nextRecords;
@@ -283,7 +311,9 @@
                         setMedicalSyncStatus(`Live • ${medicalRecords.length.toLocaleString()} record${medicalRecords.length === 1 ? "" : "s"} • Updated ${new Date().toLocaleTimeString()}`, "connected");
                         return;
                     } catch (googleError) {
-                        console.warn("Apps Script unavailable; falling back to Supabase", googleError);
+                        // Do not read the old Supabase mirror when Sheets is configured;
+                        // that can resurrect deleted rows and hide spreadsheet updates.
+                        throw googleError;
                     }
                 }
                 // Fetch every column so a missing optional column cannot block all rows.
@@ -320,8 +350,12 @@
                 const setupMessage = GOOGLE_SHEETS_API_URL
                     ? "Confirm that the Apps Script URL is deployed as a web app and allows requests from this page."
                     : `Set GOOGLE_SHEETS_API_URL in script.js to your deployed Apps Script /exec URL. Supabase is only a fallback and is not the Google Form spreadsheet.`;
-                els.medicalRecordsHead.innerHTML = `<tr><th>Medical Records</th></tr>`;
-                els.medicalRecordsBody.innerHTML = `<tr><td colspan="1" class="no-log">Unable to load records from ${source}: ${escapeHtml(message)}<br><small>${escapeHtml(setupMessage)}</small></td></tr>`;
+                // Keep the last successfully loaded rows visible during a temporary
+                // timeout; replacing them with an error row makes valid data appear deleted.
+                if (!medicalRecords.length) {
+                    els.medicalRecordsHead.innerHTML = `<tr><th>Medical Records</th></tr>`;
+                    els.medicalRecordsBody.innerHTML = `<tr><td colspan="1" class="no-log">Unable to load records from ${source}: ${escapeHtml(message)}<br><small>${escapeHtml(setupMessage)}</small></td></tr>`;
+                }
                 console.error("Medical records load failed", { message, source, table: MEDICAL_TABLE, url: GOOGLE_SHEETS_API_URL || SUPABASE_URL });
             } finally {
                 medicalLoadInProgress = false;
@@ -379,17 +413,33 @@
             }
         }
 
-        async function googleSheetsRequest(url, options) {
-            const response = await fetch(url, options);
-            const text = await response.text();
-            if (!response.ok) throw new Error(googleSheetsError(text, response.status));
+        async function googleSheetsRequest(url, options = {}) {
+            const controller = new AbortController();
+            const timeoutMs = options.timeoutMs || GOOGLE_SHEETS_REQUEST_TIMEOUT_MS;
+            const requestOptions = { ...options };
+            delete requestOptions.timeoutMs;
+            const timeout = setTimeout(() => controller.abort(), timeoutMs);
             try {
-                const payload = JSON.parse(text);
-                if (payload && !Array.isArray(payload) && payload.error) throw new Error(payload.error);
-                return payload;
+                const response = await fetch(url, {
+                    ...requestOptions,
+                    cache: "no-store",
+                    signal: controller.signal
+                });
+                const text = await response.text();
+                if (!response.ok) throw new Error(googleSheetsError(text, response.status));
+                try {
+                    const payload = JSON.parse(text);
+                    if (payload && !Array.isArray(payload) && payload.error) throw new Error(payload.error);
+                    return payload;
+                } catch (error) {
+                    if (error instanceof SyntaxError) throw new Error(googleSheetsError(text, response.status));
+                    throw error;
+                }
             } catch (error) {
-                if (error instanceof SyntaxError) throw new Error(googleSheetsError(text, response.status));
+                if (error.name === "AbortError") throw new Error("Google Sheets request timed out.");
                 throw error;
+            } finally {
+                clearTimeout(timeout);
             }
         }
 
@@ -525,21 +575,23 @@
                 if (GOOGLE_SHEETS_API_URL) {
                     const rowNumber = record.rowNumber ?? record.row ?? record.rowIndex;
                     if (!rowNumber) throw new Error("This response has no spreadsheet row number.");
-                    await googleSheetsRequest(GOOGLE_SHEETS_API_URL, {
+                    const result = await googleSheetsRequest(GOOGLE_SHEETS_API_URL, {
                         method: "POST",
                         headers: { "Content-Type": "text/plain;charset=utf-8" },
                         // The Apps Script must recognize action=delete. Do not send
                         // action=update here because that produces Invalid update request.
                         body: JSON.stringify({ action: "delete", sheet: GOOGLE_SHEET_TAB, rowNumber: Number(rowNumber), accessToken: currentUser.access_token })
                     });
+                    if (result?.success === false || result?.ok === false) throw new Error(result.error || result.message || "Google Sheets rejected the delete.");
                 } else {
                     if (!record.id) throw new Error("This record has no row identifier.");
                     await supabaseRequest(`${MEDICAL_TABLE}?id=eq.${encodeURIComponent(record.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
                 }
                 medicalRecords.splice(index, 1);
+                medicalRecordsInitialized = true;
                 renderMedicalRecords();
                 renderFormStatistics();
-                loadMedicalRecords();
+                await loadMedicalRecords();
             } catch (error) {
                 alert(`Unable to delete this medical record: ${error.message || "Unknown error"}`);
                 console.error(error);
@@ -561,7 +613,9 @@
                 recommendation: els.recordRecommendation.value
             };
 
-            // Update the visible row immediately so the UI does not wait for Apps Script.
+            // Keep the edit visible while the spreadsheet list endpoint catches up.
+            // Some Apps Script deployments return the previous row briefly after an update.
+            pendingMedicalUpdates.set(String(record.id), update);
             Object.assign(record, update);
             closeMedicalRecordModal();
             renderMedicalRecords();
@@ -569,17 +623,28 @@
 
             try {
                 if (GOOGLE_SHEETS_API_URL) {
-                    await googleSheetsRequest(GOOGLE_SHEETS_API_URL, {
+                    const result = await googleSheetsRequest(GOOGLE_SHEETS_API_URL, {
                         method: "POST",
                         headers: { "Content-Type": "text/plain;charset=utf-8" },
+                        timeoutMs: 60000,
                         body: JSON.stringify({ action: "update", sheet: GOOGLE_SHEET_TAB, rowNumber: record.rowNumber || record.id, fields: update, accessToken: currentUser.access_token })
                     });
+                    if (result?.success === false || result?.ok === false) throw new Error(result.error || result.message || "Google Sheets rejected the update.");
+                    // Do not clear this yet: the next list response may still be an
+                    // older cached row. It is cleared only after displayed values match.
+                    setMedicalSyncStatus("Saved — waiting for Google Sheets to confirm", "syncing");
                 } else {
                     await supabaseRequest(`${MEDICAL_TABLE}?id=eq.${encodeURIComponent(record.id)}`, { method:"PATCH", body: JSON.stringify(update), headers:{ Prefer:"return=minimal" } });
                 }
             } catch (error) {
-                // Keep the edited values visible and let the next refresh retry the sync.
+                pendingMedicalUpdates.delete(String(record.id));
                 console.error("Medical record save failed", error);
+                alert(`Unable to save this medical record: ${error.message || "Unknown error"}`);
+            } finally {
+                // Do not immediately start another slow list request after saving.
+                // The optimistic row stays visible, and the normal polling refresh
+                // will reconcile it with Google Sheets later.
+                if (!GOOGLE_SHEETS_API_URL) await loadMedicalRecords();
             }
         }
 
