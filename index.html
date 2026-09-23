@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+
+    <title>Health and Safety Report</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="report-header">
+        <div class="header-actions">
+            <div>
+                <h1>Health and Safety Report</h1>
+                <div class="live-clock" id="liveClock">Loading Date & Time...</div>
+            </div>
+            <div class="account-area">
+                <span id="signedInUser" class="signed-in-user">Not signed in</span>
+                <button id="logoutButton" class="btn btn-light" type="button" onclick="logoutUser()" hidden>Log out</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="auth-gate" id="authGate" aria-hidden="false">
+        <form class="auth-card" id="loginForm">
+            <div class="auth-mark">✚</div>
+            <h2>HSE Dashboard Login</h2>
+            <p class="form-help">Sign in with your account to view records and update clinical details.</p>
+            <div class="group"><label for="loginEmail">Email address</label><input id="loginEmail" type="email" autocomplete="email" required></div>
+            <div class="group"><label for="loginPassword">Password</label><div class="password-field"><input id="loginPassword" type="password" autocomplete="current-password" required><button class="password-toggle" id="togglePassword" type="button" aria-label="Show password" aria-pressed="false">◉</button></div></div>
+            <p class="auth-error" id="authError" role="alert"></p>
+            <button class="btn btn-primary" type="submit">Sign in</button>
+        </form>
+    </div>
+
+    <nav class="main-menu" aria-label="Main menu">
+        <button class="menu-item active" type="button" data-section="manhoursSection">📊 Man-Hours Counter</button>
+        <button class="menu-item" type="button" data-section="googleFormSection">📝 Clinic Management</button>
+    </nav>
+
+    <main id="manhoursSection" class="app-section active">
+        <div class="dashboard">
+        <div class="card card-large">
+            <div class="label-row">
+                <label for="periodSelect" class="label" style="margin:0">Man Hours Filtered Period:</label>
+                <select id="periodSelect" onchange="renderDashboard()">
+                    <option value="YTD" selected>Year-to-Date (YTD)</option>
+                    <option value="MTD">Month-to-Date (MTD)</option>
+                </select>
+            </div>
+            <div class="value value-large" id="displayPeriodHours">0.00</div>
+            <div class="sub-ratio">Live Updates • Excludes Weekends & PH Holidays</div>
+        </div>
+
+        <div class="card alert-card">
+            <div class="label">Total Hours Lost</div>
+            <div class="value" id="displayHoursLost">0</div>
+            <div class="sub-ratio">Productivity Impact</div>
+        </div>
+
+        <div class="card alert-card">
+            <div class="label">Total Days Lost</div>
+            <div class="value" id="displayDaysLost">0</div>
+            <div class="sub-ratio">Total Absenteeism Records</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Days Without Incident</div>
+            <div class="value" id="displayIncidentFreeDays">0</div>
+        </div>
+
+        <div class="card">
+            <div class="label">HSE Compliance Status</div>
+            <div class="status-badge" id="displayCompliance">COMPLIANT</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Total Workforce</div>
+            <div class="value" id="displayTotalCount">0</div>
+            <div class="sub-ratio" id="displayRatio">0% M | 0% F</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Male Headcount</div>
+            <div class="value" id="displayMaleCount">0</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Female Headcount</div>
+            <div class="value" id="displayFemaleCount">0</div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="header-row">
+            <h2 class="panel-title" style="margin-bottom:0">Recent OSH Incident / Accident Logs</h2>
+            <button class="btn btn-card" onclick="openIncidentModal()">⚠️ Report an Incident / Accident</button>
+        </div>
+        <table class="incident-table">
+            <thead>
+                <tr>
+                    <th>Date of Incident and Time</th>
+                    <th>Injured or Ill Person</th>
+                    <th>Type of Incident or Illness or Accident</th>
+                    <th>Nature of Injury</th>
+                    <th>Cause of Illness or Accident</th>
+                    <th>Days Absent</th>
+                    <th>Report Summary</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="incidentLogBody"></tbody>
+        </table>
+    </div>
+
+    <div class="panel">
+        <h2 class="panel-title" style="margin-bottom:0">Monthly Days Absent Summary</h2>
+        <div class="month-list" id="monthList"></div>
+    </div>
+
+        <div class="admin-wrap">
+            <button class="admin-toggle" onclick="toggleAdminPanel()">⚙️ Access Admin Panel</button>
+        </div>
+    </main>
+
+    <main id="googleFormSection" class="app-section">
+        <section class="google-form-layout">
+            <div class="panel google-form-panel">
+                <div class="header-row">
+                    <h2 class="panel-title" style="margin-bottom:0">Google Form Submission</h2>
+                    <a class="btn btn-primary" id="googleFormOpenLink" href="#" target="_blank" rel="noopener">Open Google Form ↗</a>
+                </div>
+                <div class="form-access-card">
+                    <div class="qr-placeholder"><img src="google-form-qr.png" alt="Scan QR code to open the Google Form"></div>
+                    <div>
+                        <h3>Scan to submit a medical record</h3>
+                        <p class="form-help">Users submit through Google Forms separately and appear in the Medical Records table below.</p>
+                        
+                    </div>
+                </div>
+            </div>
+
+            <section class="panel form-statistics-card">
+                <h2 class="panel-title">Google Form Statistics</h2>
+                <div class="statistics-grid">
+                    <div class="stat-item"><span>Total Responses</span><strong id="formResponseCount">0</strong></div>
+                    <div class="stat-item"><span>Employees Logged</span><strong id="formEmployeeCount">0</strong></div>
+                    <div class="stat-item"><span>Male Employees</span><strong id="formMaleCount">0</strong></div>
+                    <div class="stat-item"><span>Female Employees</span><strong id="formFemaleCount">0</strong></div>
+                    <div class="stat-item"><span>Latest Response</span><strong id="formLatestResponse">No data</strong></div>
+                </div>
+                <p class="form-help">Statistics are calculated from the medical_records table. Employee and gender values are read from the original Google Form details.</p>
+                <div class="actions">
+                    <button class="btn btn-card refresh-records-button" type="button" onclick="loadMedicalRecords()"><span class="refresh-icon" aria-hidden="true">↻</span> Refresh Statistics</button>
+                    <button class="btn btn-primary" type="button" onclick="downloadMedicalReport()">📥 Download Top 10 Report</button>
+                </div>
+            </section>
+
+            <section class="panel medical-records-panel">
+                <div class="header-row">
+                    <h2 class="panel-title" style="margin-bottom:0">Medical Records</h2>
+                    <button class="btn btn-card refresh-records-button" type="button" onclick="loadMedicalRecords()"><span class="refresh-icon" aria-hidden="true">↻</span> Refresh Records</button>
+                </div>
+                <p class="form-help">Google Form submissions are stored. Nurses and administrators can update the clinical details below.</p>
+                <div class="top-ten-grid">
+                    <div class="stat-item"><span>Top 10 Medicines</span><div id="topMedicines" class="ranking-list">No data</div></div>
+                    <div class="stat-item"><span>Top 10 Chief Complaints</span><div id="topComplaints" class="ranking-list">No data</div></div>
+                    <div class="stat-item"><span>Top 10 Diagnoses</span><div id="topDiagnoses" class="ranking-list">No data</div></div>
+                </div>
+                <div class="header-row report-download-row">
+                    <span class="form-help">Download the current employee, gender, and top-10 statistics.</span>
+                    <button class="btn btn-primary" type="button" onclick="downloadMedicalReport()">📥 Download Report</button>
+                </div>
+                <div class="table-scroll">
+                    <table class="incident-table medical-records-table">
+                        <thead id="medicalRecordsHead"></thead>
+                        <tbody id="medicalRecordsBody"><tr><td colspan="1" class="no-log">Loading medical records...</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <div class="modal" id="medicalRecordModal" aria-hidden="true">
+        <a href="/" style="display:none;">Link</a>
+        <div class="modal-card medical-record-modal-card">
+            <h3>Edit Medical Record</h3>
+            <p class="form-help">Only the clinical fields are editable from this page. Google Form answers remain unchanged.</p>
+            <div class="form-grid">
+                <div class="group"><label for="recordBp">Blood Pressure</label><input id="recordBp" type="text" placeholder="e.g. 120/80"></div>
+                <div class="group"><label for="recordO2">O2 Saturation</label><input id="recordO2" type="text" placeholder="e.g. 98%"></div>
+                <div class="group"><label for="recordPulse">Pulse Rate</label><input id="recordPulse" type="text" placeholder="e.g. 72 bpm"></div>
+                <div class="group"><label for="recordTemp">Temperature</label><input id="recordTemp" type="text" placeholder="e.g. 36.7 °C"></div>
+                <div class="group"><label for="recordMedicine">Medicine Given</label><select id="recordMedicine"><option value="">None / not recorded</option></select></div>
+                <div class="group"><label for="recordStaff">Attending Nurse or Doctor</label><input id="recordStaff" type="text"></div>
+                <div class="group"><label for="recordComplaint">Chief Complaint</label><textarea id="recordComplaint"></textarea></div>
+                <div class="group"><label for="recordDiagnosis">Diagnosis</label><textarea id="recordDiagnosis"></textarea></div>
+                <div class="group"><label for="recordRecommendation">Recommendation</label><select id="recordRecommendation"><option>Clinic Rest</option><option>Sent Home</option><option>ER Conduction</option><option>Return to Work</option></select></div>
+            </div>
+            <div class="actions"><button class="btn btn-danger" type="button" onclick="closeMedicalRecordModal()">Cancel</button><button class="btn btn-primary" type="button" onclick="saveMedicalRecord()">Save Record</button></div>
+        </div>
+    </div>
+
+    <div class="modal" id="adminPanelModal" aria-hidden="true"> 
+        <a href="/" style="display:none;">Link</a>
+        <div class="admin-panel">
+            <div class="admin-title">
+                <span>Admin Control Panel</span>
+                <button class="btn btn-danger" style="padding:.45rem .8rem" onclick="toggleAdminPanel()">✕</button>
+            </div>
+            <div class="grid">
+                <div class="group"><label for="inputMale">Male Headcount</label><input type="number" id="inputMale" value="0"></div>
+                <div class="group"><label for="inputFemale">Female Headcount</label><input type="number" id="inputFemale" value="0"></div>
+                <div class="group"><label for="inputDaysLost">Days Lost (Absenteeism)</label><input type="number" id="inputDaysLost" value="0" step="0.5"></div>
+                <div class="group"><label for="adminPassword">Admin Password</label><input type="password" id="adminPassword" placeholder="Required for changes"></div>
+                <button class="btn btn-primary" onclick="updateDashboard()">💾 Save and Apply Changes</button>
+                                    <button class="btn btn-blue" onclick="downloadReport()">📥 Download Man-Hours Report</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="incidentModal" aria-hidden="true">
+        <a href="/" style="display:none;">Link</a>
+        <div class="modal-card">
+            <h3 id="modalTitle">Report an Incident</h3>
+            <div class="form-grid">
+                <div class="group"><label for="incidentDateTimeInput">Date of Incident and Time</label><input type="datetime-local" id="incidentDateTimeInput"></div>
+                <div class="group"><label for="incidentPersonInput">Injured or Illperson</label><input type="text" id="incidentPersonInput" placeholder="Enter name"></div>
+                <div class="group"><label for="incidentTypeInput">Type of Incident or Illness or Accident</label><input type="text" id="incidentTypeInput" placeholder="Enter type"></div>
+                <div class="group"><label for="incidentNatureInput">Nature of Injury</label><input type="text" id="incidentNatureInput" placeholder="Enter nature of injury"></div>
+                <div class="group"><label for="incidentCauseInput">Cause of Illness or Accident</label><input type="text" id="incidentCauseInput" placeholder="Enter cause"></div>
+                <div class="group"><label for="incidentDaysAbsentInput">Number of Days Absent</label><input type="number" id="incidentDaysAbsentInput" step="0.5" min="0" placeholder="Enter days absent"></div>
+                <div class="group"><label for="incidentSummaryInput">Report Summary</label><textarea id="incidentSummaryInput" placeholder="Write the incident summary here..."></textarea></div>
+                <div class="group"><label for="incidentPasswordInput">Admin Password</label><input type="password" id="incidentPasswordInput" placeholder="Required to save incident"></div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-danger" onclick="closeIncidentModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveIncidentFromModal()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="passwordModal" aria-hidden="true">
+        <a href="/" style="display:none;">Link</a>
+        <div class="modal-card">
+            <h3>Admin Password Required</h3>
+            <div class="group">
+                <label for="passwordInput">Enter Admin Password</label>
+                <input type="password" id="passwordInput" placeholder="Password">
+            </div>
+            <div class="actions">
+                <button class="btn btn-danger" onclick="closePasswordModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmPasswordAction()">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js?v=20260923-2"></script>
+</body>
+</html>
