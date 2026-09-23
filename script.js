@@ -4,7 +4,7 @@
         // Leave blank to keep using the existing Supabase medical_records table.
         // Add the deployed Apps Script /exec URL here after deploying the Sheets API.
         // A placeholder URL must remain disabled; otherwise every refresh fails with "Failed to fetch".
-        const GOOGLE_SHEETS_API_URL = "";
+        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbxDVmLvdIU_XEECrvc3YXEpHp1hQ-agz8WOuRftA4n_u_V_VfwnVL_pdGumA8EtwPWM0w/exec";
         const GOOGLE_SHEET_TAB = "Form Responses 1";
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
         const SUPABASE_KEY = "sb_publishable_AEa9iIzus4ziOzax0wcH6w_3aHz_evn";
@@ -243,25 +243,33 @@
             setMedicalSyncStatus("Syncing records…", "syncing");
             try {
                 if (GOOGLE_SHEETS_API_URL) {
-                    const response = await fetch(`${GOOGLE_SHEETS_API_URL}?action=list&sheet=${encodeURIComponent(GOOGLE_SHEET_TAB)}`, {
-                        cache: "no-store",
-                        headers: { Authorization: `Bearer ${currentUser.access_token}` }
-                    });
-                    if (!response.ok) throw new Error(await response.text());
-                    const payload = await response.json();
-                    const nextRecords = (Array.isArray(payload) ? payload : payload.records || []).map(record => ({
-                        ...record,
-                        id: String(record.id ?? record.rowNumber ?? "")
-                    }));
-                    const previousIds = new Set(medicalRecords.map(record => String(record.id)));
-                    const hasNewRecords = medicalRecordsInitialized && nextRecords.some(record => !previousIds.has(String(record.id)));
-                    medicalRecords = nextRecords;
-                    medicalRecordsInitialized = true;
-                    if (hasNewRecords) playNewRecordNotification();
-                    renderMedicalRecords();
-                    renderFormStatistics();
-                    setMedicalSyncStatus(`Live • ${medicalRecords.length.toLocaleString()} record${medicalRecords.length === 1 ? "" : "s"} • Updated ${new Date().toLocaleTimeString()}`, "connected");
-                    return;
+                    // Apps Script deployments can fail in the browser because of CORS,
+                    // redirects, permissions, or an outdated deployment version. If that
+                    // happens, continue with the authenticated Supabase fallback below.
+                    try {
+                        const response = await fetch(`${GOOGLE_SHEETS_API_URL}?action=list&sheet=${encodeURIComponent(GOOGLE_SHEET_TAB)}`, {
+                            method: "GET",
+                            cache: "no-store"
+                        });
+                        if (!response.ok) throw new Error(await response.text());
+                        const payload = await response.json();
+                        if (payload && !Array.isArray(payload) && payload.error) throw new Error(payload.error);
+                        const nextRecords = (Array.isArray(payload) ? payload : payload.records || []).map(record => ({
+                            ...record,
+                            id: String(record.id ?? record.rowNumber ?? "")
+                        }));
+                        const previousIds = new Set(medicalRecords.map(record => String(record.id)));
+                        const hasNewRecords = medicalRecordsInitialized && nextRecords.some(record => !previousIds.has(String(record.id)));
+                        medicalRecords = nextRecords;
+                        medicalRecordsInitialized = true;
+                        if (hasNewRecords) playNewRecordNotification();
+                        renderMedicalRecords();
+                        renderFormStatistics();
+                        setMedicalSyncStatus(`Live • ${medicalRecords.length.toLocaleString()} record${medicalRecords.length === 1 ? "" : "s"} • Updated ${new Date().toLocaleTimeString()}`, "connected");
+                        return;
+                    } catch (googleError) {
+                        console.warn("Apps Script unavailable; falling back to Supabase", googleError);
+                    }
                 }
                 // Fetch every column so a missing optional column cannot block all rows.
                 // Google Forms data must first be inserted into medical_records by the
@@ -385,8 +393,10 @@
                 if (GOOGLE_SHEETS_API_URL) {
                     const response = await fetch(GOOGLE_SHEETS_API_URL, {
                         method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentUser.access_token}` },
-                        body: JSON.stringify({ action: "update", sheet: GOOGLE_SHEET_TAB, rowNumber: editingMedicalRecord.rowNumber || editingMedicalRecord.id, fields: update })
+                        // Content-Type application/json and Authorization would trigger
+                        // a CORS preflight against the Apps Script web app.
+                        headers: { "Content-Type": "text/plain;charset=utf-8" },
+                        body: JSON.stringify({ action: "update", sheet: GOOGLE_SHEET_TAB, rowNumber: editingMedicalRecord.rowNumber || editingMedicalRecord.id, fields: update, accessToken: currentUser.access_token })
                     });
                     if (!response.ok) throw new Error(await response.text());
                 } else {
