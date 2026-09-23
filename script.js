@@ -4,7 +4,7 @@
         // Leave blank to keep using the existing Supabase medical_records table.
         // Add the deployed Apps Script /exec URL here after deploying the Sheets API.
         // A placeholder URL must remain disabled; otherwise every refresh fails with "Failed to fetch".
-        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbxDVmLvdIU_XEECrvc3YXEpHp1hQ-agz8WOuRftA4n_u_V_VfwnVL_pdGumA8EtwPWM0w/exec";
+        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbwi9UgN97dPykD6Z7MdW4vp14FLqFqdzmi37h60gq9CsN3awJZO1l3nnDlQqe2Z7WbdLQ/exec";
         const GOOGLE_SHEET_TAB = "Form Responses 1";
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
         const SUPABASE_KEY = "sb_publishable_AEa9iIzus4ziOzax0wcH6w_3aHz_evn";
@@ -43,7 +43,7 @@
         if (typeof metrics.lastTickTimestamp !== "number") metrics.lastTickTimestamp = Date.now();
 
         function cache() {
-            ["liveClock","authGate","loginForm","loginEmail","loginPassword","togglePassword","authError","signedInUser","logoutButton","googleFormFrame","googleFormOpenLink","formResponseCount","formEmployeeCount","formMaleCount","formFemaleCount","formLatestResponse","formResponseInput","medicalSyncStatus","displayPeriodHours","periodSelect","displayHoursLost","displayDaysLost","displayTotalCount","displayMaleCount","displayFemaleCount","displayIncidentFreeDays","displayRatio","displayCompliance","adminPanelModal","inputMale","inputFemale","inputDaysLost","adminPassword","incidentLogBody","incidentModal","incidentDateTimeInput","incidentPersonInput","incidentTypeInput","incidentNatureInput","incidentCauseInput","incidentDaysAbsentInput","incidentSummaryInput","incidentPasswordInput","modalTitle","passwordModal","passwordInput","monthList","medicalRecordModal","medicalRecordsBody","topMedicines","topComplaints","topDiagnoses","recordBp","recordO2","recordPulse","recordTemp","recordMedicine","recordStaff","recordComplaint","recordDiagnosis","recordRecommendation"].forEach(id => els[id] = document.getElementById(id));
+            ["liveClock","authGate","loginForm","loginEmail","loginPassword","togglePassword","authError","signedInUser","logoutButton","googleFormFrame","googleFormOpenLink","formResponseCount","formEmployeeCount","formMaleCount","formFemaleCount","formLatestResponse","formResponseInput","medicalSyncStatus","displayPeriodHours","periodSelect","displayHoursLost","displayDaysLost","displayTotalCount","displayMaleCount","displayFemaleCount","displayIncidentFreeDays","displayRatio","displayCompliance","adminPanelModal","inputMale","inputFemale","inputDaysLost","adminPassword","incidentLogBody","medicalRecordsHead","incidentModal","incidentDateTimeInput","incidentPersonInput","incidentTypeInput","incidentNatureInput","incidentCauseInput","incidentDaysAbsentInput","incidentSummaryInput","incidentPasswordInput","modalTitle","passwordModal","passwordInput","monthList","medicalRecordModal","medicalRecordsBody","topMedicines","topComplaints","topDiagnoses","recordBp","recordO2","recordPulse","recordTemp","recordMedicine","recordStaff","recordComplaint","recordDiagnosis","recordRecommendation"].forEach(id => els[id] = document.getElementById(id));
             els.menuItems = document.querySelectorAll(".menu-item");
             els.appSections = document.querySelectorAll(".app-section");
         }
@@ -150,7 +150,8 @@
             els.togglePassword.setAttribute("aria-label", "Show password");
             els.togglePassword.setAttribute("aria-pressed", "false");
             els.authError.textContent = "";
-            els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Sign in to load medical records.</td></tr>`;
+            els.medicalRecordsHead.innerHTML = `<tr><th>Medical Records</th></tr>`;
+            els.medicalRecordsBody.innerHTML = `<tr><td colspan="1" class="no-log">Sign in to load medical records.</td></tr>`;
             setMedicalSyncStatus("Waiting for sign-in");
             renderFormStatistics();
         }
@@ -229,6 +230,22 @@
             });
         }
 
+        function normalizeMedicalRecord(record, headers = []) {
+            let normalized = record;
+            if (Array.isArray(record)) {
+                normalized = Object.fromEntries(headers.map((header, index) => [header, record[index] ?? ""]));
+            } else if (typeof record !== "object" || record === null) {
+                normalized = {};
+            }
+            const rowNumber = normalized.rowNumber ?? normalized.row ?? normalized.rowIndex ?? "";
+            const recordId = normalized.id || rowNumber;
+            return {
+                ...normalized,
+                id: String(recordId),
+                rowNumber
+            };
+        }
+
         async function loadMedicalRecords() {
             animateRefreshButtons();
             if (!currentUser?.access_token) {
@@ -247,17 +264,15 @@
                     // redirects, permissions, or an outdated deployment version. If that
                     // happens, continue with the authenticated Supabase fallback below.
                     try {
-                        const response = await fetch(`${GOOGLE_SHEETS_API_URL}?action=list&sheet=${encodeURIComponent(GOOGLE_SHEET_TAB)}`, {
+                        const payload = await googleSheetsRequest(`${GOOGLE_SHEETS_API_URL}?action=list&sheet=${encodeURIComponent(GOOGLE_SHEET_TAB)}&accessToken=${encodeURIComponent(currentUser.access_token)}`, {
                             method: "GET",
                             cache: "no-store"
                         });
-                        if (!response.ok) throw new Error(await response.text());
-                        const payload = await response.json();
-                        if (payload && !Array.isArray(payload) && payload.error) throw new Error(payload.error);
-                        const nextRecords = (Array.isArray(payload) ? payload : payload.records || []).map(record => ({
-                            ...record,
-                            id: String(record.id ?? record.rowNumber ?? "")
-                        }));
+                        const sheetHeaders = payload.headers || payload.header || payload.columns || payload.data?.headers || [];
+                        const rawRecords = Array.isArray(payload)
+                            ? payload
+                            : (payload.records || payload.rows || payload.data?.records || payload.data?.rows || payload.data?.values || []);
+                        const nextRecords = rawRecords.map(record => normalizeMedicalRecord(record, sheetHeaders));
                         const previousIds = new Set(medicalRecords.map(record => String(record.id)));
                         const hasNewRecords = medicalRecordsInitialized && nextRecords.some(record => !previousIds.has(String(record.id)));
                         medicalRecords = nextRecords;
@@ -286,8 +301,8 @@
                     }
                 );
                 const nextRecords = (Array.isArray(records) ? records : []).sort((a, b) => {
-                    const dateA = new Date(recordValue(a, ["created_at", "timestamp", "submitted_at"])).getTime() || 0;
-                    const dateB = new Date(recordValue(b, ["created_at", "timestamp", "submitted_at"])).getTime() || 0;
+                    const dateA = new Date(submittedValue(a)).getTime() || 0;
+                    const dateB = new Date(submittedValue(b)).getTime() || 0;
                     return dateB - dateA;
                 });
                 const previousIds = new Set(medicalRecords.map(record => String(record.id)));
@@ -305,7 +320,8 @@
                 const setupMessage = GOOGLE_SHEETS_API_URL
                     ? "Confirm that the Apps Script URL is deployed as a web app and allows requests from this page."
                     : `Set GOOGLE_SHEETS_API_URL in script.js to your deployed Apps Script /exec URL. Supabase is only a fallback and is not the Google Form spreadsheet.`;
-                els.medicalRecordsBody.innerHTML = `<tr><td colspan="9" class="no-log">Unable to load records from ${source}: ${escapeHtml(message)}<br><small>${escapeHtml(setupMessage)}</small></td></tr>`;
+                els.medicalRecordsHead.innerHTML = `<tr><th>Medical Records</th></tr>`;
+                els.medicalRecordsBody.innerHTML = `<tr><td colspan="1" class="no-log">Unable to load records from ${source}: ${escapeHtml(message)}<br><small>${escapeHtml(setupMessage)}</small></td></tr>`;
                 console.error("Medical records load failed", { message, source, table: MEDICAL_TABLE, url: GOOGLE_SHEETS_API_URL || SUPABASE_URL });
             } finally {
                 medicalLoadInProgress = false;
@@ -316,22 +332,78 @@
             }
         }
 
-        function recordValue(record, names) {
-            const wanted = names.map(name => name.toLowerCase());
-            const key = Object.keys(record || {}).find(name => wanted.includes(name.toLowerCase()));
-            return key ? record[key] : "";
+        function normalizedKey(value) {
+            return String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
         }
-        function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[char])); }
-        function topTen(field) { const counts = {}; medicalRecords.forEach(record => { const value = recordValue(record, field); if (value) counts[value] = (counts[value] || 0) + 1; }); return Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 10).map(([name,count], index) => `<div>${index + 1}. ${escapeHtml(name)} <strong>${count}</strong></div>`).join("") || "No data"; }
+
+        function recordValue(record, names) {
+            const wanted = names.map(normalizedKey).filter(Boolean);
+            const entries = Object.entries(record || {});
+            const exact = entries.find(([key]) => wanted.includes(normalizedKey(key)));
+            if (exact) return exact[1];
+
+            // Google Form question headers often contain extra wording. Match only
+            // when an alias is clearly contained in the header, not by column order.
+            const partial = entries.find(([key]) => {
+                const header = normalizedKey(key);
+                return wanted.some(alias => alias.length >= 5 && (header.includes(alias) || alias.includes(header)));
+            });
+            return partial ? partial[1] : "";
+        }
+
+        // Apps Script rows use sheet headers, while Supabase rows use database names.
+        // Keep both formats mapped to the same table columns.
+        function clinicalValue(record, names) {
+            const value = recordValue(record, names);
+            if (value !== "" && value !== null && value !== undefined) return value;
+            return detailValue(record, names);
+        }
+
+        function submittedValue(record) {
+            return recordValue(record, ["created_at", "timestamp", "submitted_at", "Timestamp", "Submission timestamp", "Submitted", "Response Timestamp"])
+                || detailValue(record, ["Timestamp", "Submission timestamp", "Submitted", "Response Timestamp"]);
+        }
+
+        function escapeHtml(value) { return String(value ?? "").replace(/[&<>'\"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[char])); }
+
+        function googleSheetsError(responseText, status) {
+            const text = String(responseText || "").trim();
+            try {
+                const payload = JSON.parse(text);
+                return payload.error || payload.message || `Google Sheets request failed (${status}).`;
+            } catch {
+                if (text.startsWith("<!DOCTYPE html") || text.startsWith("<html")) {
+                    return "Google Sheets returned an HTML page instead of JSON. Redeploy the Apps Script as a Web app with access set to Anyone, and use its /exec URL (not /dev).";
+                }
+                return text.replace(/<[^>]*>/g, " ").replace(/\\s+/g, " ").trim().slice(0, 300) || `Google Sheets request failed (${status}).`;
+            }
+        }
+
+        async function googleSheetsRequest(url, options) {
+            const response = await fetch(url, options);
+            const text = await response.text();
+            if (!response.ok) throw new Error(googleSheetsError(text, response.status));
+            try {
+                const payload = JSON.parse(text);
+                if (payload && !Array.isArray(payload) && payload.error) throw new Error(payload.error);
+                return payload;
+            } catch (error) {
+                if (error instanceof SyntaxError) throw new Error(googleSheetsError(text, response.status));
+                throw error;
+            }
+        }
+
+        function topTen(field) { const counts = {}; medicalRecords.forEach(record => { const value = clinicalValue(record, field); if (value) counts[value] = (counts[value] || 0) + 1; }); return Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 10).map(([name,count], index) => `<div>${index + 1}. ${escapeHtml(name)} <strong>${count}</strong></div>`).join("") || "No data"; }
 
         function formDetails(record) {
-            // form_details is jsonb in the medical_records table.
-            const raw = record?.form_details ?? {};
-            if (typeof raw === "object" && raw !== null) return raw;
+            // Supabase stores Google Form answers in form_details. Apps Script may
+            // return the same object as form_details, details, or formDetails.
+            const raw = record?.form_details ?? record?.details ?? record?.formDetails ?? {};
+            if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) return raw;
             if (typeof raw === "string") {
                 try {
                     const parsed = JSON.parse(raw);
-                    return parsed && typeof parsed === "object" ? parsed : {};
+                    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
                 } catch {
                     return {};
                 }
@@ -339,18 +411,36 @@
             return {};
         }
 
+        const MEDICAL_FIELD_ALIASES = {
+            bp: ["vitals_bp", "blood_pressure", "blood pressure", "bp", "blood pressure reading"],
+            o2: ["vitals_o2", "o2_saturation", "o2 saturation", "oxygen saturation", "spo2", "oxygen sat"],
+            pulse: ["vitals_pulse_rate", "pulse_rate", "pulse rate", "pulse", "heart rate"],
+            temp: ["vitals_temperature", "temperature", "temp", "body temperature"],
+            medicine: ["medicine_given", "medicine given", "medicine", "medication"],
+            staff: ["attending_staff", "attending nurse or doctor", "attending nurse", "attending doctor", "staff"],
+            complaint: ["chief_complaint", "chief complaint", "complaint", "chief complaints"],
+            diagnosis: ["diagnosis", "medical diagnosis"],
+            recommendation: ["recommendation", "clinic recommendation", "disposition"]
+        };
+
         function detailValue(record, names) {
             const details = formDetails(record);
-            const key = Object.keys(details).find(name => names.some(target => name.toLowerCase().trim() === target.toLowerCase().trim()));
-            return key ? String(details[key] ?? "").trim() : "";
+            const wanted = names.map(normalizedKey);
+            const entry = Object.entries(details).find(([key]) => wanted.includes(normalizedKey(key)));
+            if (entry) return String(entry[1] ?? "").trim();
+            const partial = Object.entries(details).find(([key]) => {
+                const header = normalizedKey(key);
+                return wanted.some(alias => alias.length >= 5 && (header.includes(alias) || alias.includes(header)));
+            });
+            return partial ? String(partial[1] ?? "").trim() : "";
         }
 
         function employeeKey(record) {
-            return detailValue(record, ["Employee ID", "Employee Number", "Employee No.", "Employee Name", "Name", "Full Name", "Email Address", "Email"]) || record.id;
+            return clinicalValue(record, ["employee_id", "Employee ID", "Employee Number", "Employee No.", "Employee Name", "Name", "Full Name", "Email Address", "Email"]) || record.id;
         }
 
         function genderValue(record) {
-            return detailValue(record, ["Gender", "Sex", "What is your gender?", "What is your sex?"]).toLowerCase();
+            return clinicalValue(record, ["gender", "Gender", "Sex", "What is your gender?", "What is your sex?"]).toLowerCase();
         }
 
         function getFormSummary() {
@@ -365,19 +455,100 @@
             return { employees: employees.size, male, female };
         }
 
-        function renderMedicalRecords() {
-            els.topMedicines.innerHTML = topTen(["medicine_given"]); els.topComplaints.innerHTML = topTen(["chief_complaint"]); els.topDiagnoses.innerHTML = topTen(["diagnosis"]);
-            els.medicalRecordsBody.innerHTML = medicalRecords.length ? medicalRecords.map((record, index) => {
-                const details = formDetails(record);
-                const submitted = record.created_at;
-                const formText = Object.entries(details).map(([key, value]) => `${key}: ${value}`).join(" | ");
-                return `<tr><td>${escapeHtml(submitted ? new Date(submitted).toLocaleString("en-PH") : "No date")}</td><td>${escapeHtml(formText || "No Google Form details")}</td><td>${escapeHtml([record.vitals_bp,record.vitals_o2,record.vitals_pulse_rate,record.vitals_temperature].filter(Boolean).join(" | "))}</td><td>${escapeHtml(record.medicine_given)}</td><td>${escapeHtml(record.attending_staff)}</td><td>${escapeHtml(record.chief_complaint)}</td><td>${escapeHtml(record.diagnosis)}</td><td>${escapeHtml(record.recommendation)}</td><td><button class="edit" onclick="openMedicalRecordModal(${index})">Edit</button></td></tr>`;
-            }).join("") : `<tr><td colspan="9" class="no-log">No medical records found.</td></tr>`;
+        function formResponseEntries(record) {
+            const excluded = new Set([
+                "id", "rownumber", "row", "rowindex", "createdat", "created_at", "submittedat",
+                "submitted_at", "timestamp", "submissiontimestamp", "submitted", "responsetimestamp",
+                ...Object.values(MEDICAL_FIELD_ALIASES).flat().map(normalizedKey)
+            ]);
+            const details = formDetails(record);
+            const source = Object.keys(details).length ? details : record;
+            return Object.entries(source || {}).filter(([key]) => !excluded.has(normalizedKey(key)));
         }
-        function openMedicalRecordModal(index) { editingMedicalRecord = medicalRecords[index]; ["Bp","O2","Pulse","Temp","Staff","Complaint","Diagnosis","Recommendation"].forEach(name => els[`record${name}`].value = ""); els.recordBp.value = editingMedicalRecord.vitals_bp || ""; els.recordO2.value = editingMedicalRecord.vitals_o2 || ""; els.recordPulse.value = editingMedicalRecord.vitals_pulse_rate || ""; els.recordTemp.value = editingMedicalRecord.vitals_temperature || ""; els.recordMedicine.value = editingMedicalRecord.medicine_given || ""; els.recordStaff.value = editingMedicalRecord.attending_staff || editingMedicalRecord.attending_nurse_or_doctor || ""; els.recordComplaint.value = editingMedicalRecord.chief_complaint || ""; els.recordDiagnosis.value = editingMedicalRecord.diagnosis || ""; els.recordRecommendation.value = editingMedicalRecord.recommendation || "Clinic Rest"; els.medicalRecordModal.classList.add("visible"); }
+
+        function medicalFormColumns() {
+            const columns = [];
+            medicalRecords.forEach(record => {
+                formResponseEntries(record).forEach(([key]) => {
+                    const normalized = normalizedKey(key);
+                    if (normalized && !columns.some(column => normalizedKey(column) === normalized)) columns.push(key);
+                });
+            });
+            return columns;
+        }
+
+        function formResponseValue(record, column) {
+            const entry = formResponseEntries(record).find(([key]) => normalizedKey(key) === normalizedKey(column));
+            return entry ? entry[1] : "";
+        }
+
+        function renderMedicalRecords() {
+            els.topMedicines.innerHTML = topTen(["medicine_given", "Medicine Given", "Medicine"]);
+            els.topComplaints.innerHTML = topTen(["chief_complaint", "Chief Complaint", "Complaint"]);
+            els.topDiagnoses.innerHTML = topTen(["diagnosis", "Diagnosis"]);
+
+            const formColumns = medicalFormColumns();
+            els.medicalRecordsHead.innerHTML = `<tr><th>Submitted</th>${formColumns.map(column => `<th>${escapeHtml(column)}</th>`).join("")}<th>Vitals</th><th>Medicine</th><th>Staff</th><th>Complaint</th><th>Diagnosis</th><th>Recommendation</th><th>Action</th></tr>`;
+            const columnCount = formColumns.length + 8;
+
+            els.medicalRecordsBody.innerHTML = medicalRecords.length ? medicalRecords.map((record, index) => {
+                const submitted = submittedValue(record);
+                const vitals = [
+                    clinicalValue(record, MEDICAL_FIELD_ALIASES.bp),
+                    clinicalValue(record, MEDICAL_FIELD_ALIASES.o2),
+                    clinicalValue(record, MEDICAL_FIELD_ALIASES.pulse),
+                    clinicalValue(record, MEDICAL_FIELD_ALIASES.temp)
+                ].filter(Boolean).join(" | ");
+                const formCells = formColumns.map(column => `<td>${escapeHtml(formResponseValue(record, column) || "")}</td>`).join("");
+                return `<tr><td>${escapeHtml(submitted ? new Date(submitted).toLocaleString("en-PH") : "No date")}</td>${formCells}<td>${escapeHtml(vitals || "Not recorded")}</td><td>${escapeHtml(clinicalValue(record, MEDICAL_FIELD_ALIASES.medicine))}</td><td>${escapeHtml(clinicalValue(record, MEDICAL_FIELD_ALIASES.staff))}</td><td>${escapeHtml(clinicalValue(record, MEDICAL_FIELD_ALIASES.complaint))}</td><td>${escapeHtml(clinicalValue(record, MEDICAL_FIELD_ALIASES.diagnosis))}</td><td>${escapeHtml(clinicalValue(record, MEDICAL_FIELD_ALIASES.recommendation))}</td><td><div class="log-actions"><button class="edit" onclick="openMedicalRecordModal(${index})">Edit</button></div></td></tr>`;
+            }).join("") : `<tr><td colspan="${columnCount}" class="no-log">No medical records found.</td></tr>`;
+        }
+        function openMedicalRecordModal(index) {
+            editingMedicalRecord = medicalRecords[index];
+            ["Bp","O2","Pulse","Temp","Staff","Complaint","Diagnosis","Recommendation"].forEach(name => els[`record${name}`].value = "");
+            els.recordBp.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.bp);
+            els.recordO2.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.o2);
+            els.recordPulse.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.pulse);
+            els.recordTemp.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.temp);
+            els.recordMedicine.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.medicine);
+            els.recordStaff.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.staff);
+            els.recordComplaint.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.complaint);
+            els.recordDiagnosis.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.diagnosis);
+            els.recordRecommendation.value = clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.recommendation) || "Clinic Rest";
+            els.medicalRecordModal.classList.add("visible");
+        }
+
+        async function deleteMedicalRecord(index) {
+            const record = medicalRecords[index];
+            if (!record || !confirm("Delete this Google Form response and its clinic record? This cannot be undone.")) return;
+            try {
+                if (GOOGLE_SHEETS_API_URL) {
+                    const rowNumber = record.rowNumber ?? record.row ?? record.rowIndex;
+                    if (!rowNumber) throw new Error("This response has no spreadsheet row number.");
+                    await googleSheetsRequest(GOOGLE_SHEETS_API_URL, {
+                        method: "POST",
+                        headers: { "Content-Type": "text/plain;charset=utf-8" },
+                        // The Apps Script must recognize action=delete. Do not send
+                        // action=update here because that produces Invalid update request.
+                        body: JSON.stringify({ action: "delete", sheet: GOOGLE_SHEET_TAB, rowNumber: Number(rowNumber), accessToken: currentUser.access_token })
+                    });
+                } else {
+                    if (!record.id) throw new Error("This record has no row identifier.");
+                    await supabaseRequest(`${MEDICAL_TABLE}?id=eq.${encodeURIComponent(record.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+                }
+                medicalRecords.splice(index, 1);
+                renderMedicalRecords();
+                renderFormStatistics();
+                loadMedicalRecords();
+            } catch (error) {
+                alert(`Unable to delete this medical record: ${error.message || "Unknown error"}`);
+                console.error(error);
+            }
+        }
         function closeMedicalRecordModal() { els.medicalRecordModal.classList.remove("visible"); editingMedicalRecord = null; }
         async function saveMedicalRecord() {
             if (!editingMedicalRecord?.id) return alert("This record has no row identifier and cannot be edited.");
+            const record = editingMedicalRecord;
             const update = {
                 vitals_bp: els.recordBp.value.trim(),
                 vitals_o2: els.recordO2.value.trim(),
@@ -389,24 +560,26 @@
                 diagnosis: els.recordDiagnosis.value.trim(),
                 recommendation: els.recordRecommendation.value
             };
+
+            // Update the visible row immediately so the UI does not wait for Apps Script.
+            Object.assign(record, update);
+            closeMedicalRecordModal();
+            renderMedicalRecords();
+            renderFormStatistics();
+
             try {
                 if (GOOGLE_SHEETS_API_URL) {
-                    const response = await fetch(GOOGLE_SHEETS_API_URL, {
+                    await googleSheetsRequest(GOOGLE_SHEETS_API_URL, {
                         method: "POST",
-                        // Content-Type application/json and Authorization would trigger
-                        // a CORS preflight against the Apps Script web app.
                         headers: { "Content-Type": "text/plain;charset=utf-8" },
-                        body: JSON.stringify({ action: "update", sheet: GOOGLE_SHEET_TAB, rowNumber: editingMedicalRecord.rowNumber || editingMedicalRecord.id, fields: update, accessToken: currentUser.access_token })
+                        body: JSON.stringify({ action: "update", sheet: GOOGLE_SHEET_TAB, rowNumber: record.rowNumber || record.id, fields: update, accessToken: currentUser.access_token })
                     });
-                    if (!response.ok) throw new Error(await response.text());
                 } else {
-                    await supabaseRequest(`${MEDICAL_TABLE}?id=eq.${encodeURIComponent(editingMedicalRecord.id)}`, { method:"PATCH", body: JSON.stringify(update), headers:{ Prefer:"return=minimal" } });
+                    await supabaseRequest(`${MEDICAL_TABLE}?id=eq.${encodeURIComponent(record.id)}`, { method:"PATCH", body: JSON.stringify(update), headers:{ Prefer:"return=minimal" } });
                 }
-                closeMedicalRecordModal();
-                loadMedicalRecords();
             } catch (error) {
-                alert("Unable to save this medical record.");
-                console.error(error);
+                // Keep the edited values visible and let the next refresh retry the sync.
+                console.error("Medical record save failed", error);
             }
         }
 
@@ -416,15 +589,15 @@
             els.formEmployeeCount.textContent = summary.employees.toLocaleString();
             els.formMaleCount.textContent = summary.male.toLocaleString();
             els.formFemaleCount.textContent = summary.female.toLocaleString();
-            els.formLatestResponse.textContent = medicalRecords.length
-                ? new Date(recordValue(medicalRecords[0], ["created_at", "timestamp"])).toLocaleString("en-PH")
+            els.formLatestResponse.textContent = medicalRecords.length && submittedValue(medicalRecords[0])
+                ? new Date(submittedValue(medicalRecords[0])).toLocaleString("en-PH")
                 : "No data";
         }
 
         function csvCell(value) { return `"${String(value ?? "").replace(/"/g, '""')}"`; }
         function topTenRows(field) {
             const counts = {};
-            medicalRecords.forEach(record => { const value = recordValue(record, field); if (value) counts[value] = (counts[value] || 0) + 1; });
+            medicalRecords.forEach(record => { const value = clinicalValue(record, field); if (value) counts[value] = (counts[value] || 0) + 1; });
             return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
         }
         function downloadMedicalReport() {
