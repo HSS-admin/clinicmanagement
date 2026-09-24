@@ -1,4 +1,4 @@
-        const ADMIN_PASSWORD = "admin123";
+        const ADMIN_PASSWORD = "Admin@3270";
         const GOOGLE_FORM_URL = "https://forms.gle/gGK2eZs595GSyFWv6";
         // Set this to the deployed Google Apps Script web-app URL to use the spreadsheet.
         // Leave blank to keep using the existing Supabase medical_records table.
