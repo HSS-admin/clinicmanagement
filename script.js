@@ -828,36 +828,47 @@
             medicalRecords.forEach(record => { const value = clinicalValue(record, field); if (value) counts[value] = (counts[value] || 0) + 1; });
             return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
         }
+        function excelCell(value) {
+            const text = String(value ?? "");
+            return `<td>${escapeHtml(text)}</td>`;
+        }
+
+        function downloadExcelFile(filename, sheetName, rows) {
+            const safeSheetName = String(sheetName || "Report").replace(/[\\/:?*\[\]]/g, "").slice(0, 31) || "Report";
+            const tableRows = rows.map(row => `<tr>${row.map(excelCell).join("")}</tr>`).join("");
+            const workbook = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(safeSheetName)}</title></head><body><table>${tableRows}</table></body></html>`;
+            const url = URL.createObjectURL(new Blob(["\\ufeff" + workbook], { type: "application/vnd.ms-excel" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
         function downloadMedicalReport() {
             const summary = getFormSummary();
             const rows = [
-                ["Medical Records Statistics"],
+                ["Medical Records Statistics", ""],
                 ["Generated", new Date().toLocaleString("en-PH")],
-                [],
-                ["Employee Statistics"],
+                ["", ""],
+                ["Employee Statistics", ""],
                 ["Total responses", medicalRecords.length],
                 ["Total employees who logged", summary.employees],
                 ["Male", summary.male],
                 ["Female", summary.female],
-                [],
+                ["", ""],
                 ["Top 10 Medicines Given", "Count"],
                 ...topTenRows(["medicine_given"]),
-                [],
+                ["", ""],
                 ["Top 10 Chief Complaints", "Count"],
                 ...topTenRows(["chief_complaint"]),
-                [],
+                ["", ""],
                 ["Top 10 Diagnoses", "Count"],
                 ...topTenRows(["diagnosis"])
             ];
-            const csv = rows.map(row => row.map(csvCell).join(",")).join("\\r\\n");
-            const url = URL.createObjectURL(new Blob(["\\ufeff" + csv], { type: "text/csv;charset=utf-8;" }));
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `Medical_Statistics_${new Date().toISOString().slice(0, 10)}.csv`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            URL.revokeObjectURL(url);
+            downloadExcelFile(`Medical_Statistics_${new Date().toISOString().slice(0, 10)}.xls`, "Medical Statistics", rows);
         }
 
         function saveFormStatistics() {
