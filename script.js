@@ -849,26 +849,72 @@
 
         function downloadMedicalReport() {
             const summary = getFormSummary();
-            const rows = [
-                ["Medical Records Statistics", ""],
-                ["Generated", new Date().toLocaleString("en-PH")],
-                ["", ""],
-                ["Employee Statistics", ""],
-                ["Total responses", medicalRecords.length],
-                ["Total employees who logged", summary.employees],
-                ["Male", summary.male],
-                ["Female", summary.female],
-                ["", ""],
-                ["Top 10 Medicines Given", "Count"],
-                ...topTenRows(["medicine_given"]),
-                ["", ""],
-                ["Top 10 Chief Complaints", "Count"],
-                ...topTenRows(["chief_complaint"]),
-                ["", ""],
-                ["Top 10 Diagnoses", "Count"],
-                ...topTenRows(["diagnosis"])
-            ];
-            downloadExcelFile(`Medical_Statistics_${new Date().toISOString().slice(0, 10)}.xls`, "Medical Statistics", rows);
+            const now = new Date();
+            const medicineRows = topTenRows(["medicine_given"]);
+            const complaintRows = topTenRows(["chief_complaint"]);
+            const diagnosisRows = topTenRows(["diagnosis"]);
+            const rankingTable = (title, rows) => `
+                <table class="ranking-table">
+                    <thead><tr><th colspan="2">${escapeHtml(title)}</th></tr></thead>
+                    <tbody>${rows.length
+                        ? rows.map(([name, count], index) => `<tr><td>${index + 1}. ${escapeHtml(name)}</td><td class="value-cell num-integer">${count}</td></tr>`).join("")
+                        : `<tr><td colspan="2" class="empty-cell">No data</td></tr>`}</tbody>
+                </table>`;
+
+            const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; color: #333333; font-size: 13pt; }
+        .report-title { font-size: 22pt; font-weight: bold; color: #0b2e2e; height: 42px; vertical-align: middle; }
+        .export-meta { font-size: 12pt; color: #555555; font-style: italic; height: 26px; }
+        table { border-collapse: collapse; margin-bottom: 28px; }
+        th { background-color: #0b2e2e; color: #ffffff; font-weight: bold; font-size: 13pt; text-align: left; vertical-align: middle; border: 0.5pt solid #041a1a; height: 34px; padding: 8px; }
+        td { font-size: 12pt; vertical-align: middle; border: 0.5pt solid #e0e0e0; height: 30px; padding: 8px; }
+        .summary-table td.label-cell { background-color: #f4f7f7; font-weight: bold; color: #114242; width: 280px; }
+        .summary-table td.value-cell { text-align: right; font-weight: 600; width: 180px; }
+        .ranking-table { width: 520px; }
+        .ranking-table td:first-child { width: 400px; }
+        .ranking-table .value-cell { text-align: right; font-weight: 600; width: 120px; }
+        .num-integer { mso-number-format: "#,##0"; }
+        .empty-cell { color: #777777; font-style: italic; text-align: center; }
+    </style>
+</head>
+<body>
+    <table>
+        <tr><td colspan="2" class="report-title">Medical Records Statistics Report</td></tr>
+        <tr><td colspan="2" class="export-meta">Exported: ${now.toLocaleString("en-PH")}</td></tr>
+        <tr><td colspan="2" style="height:15px;border:none;"></td></tr>
+    </table>
+
+    <table class="summary-table">
+        <thead><tr><th colspan="2">Google Form Statistics Overview</th></tr></thead>
+        <tbody>
+            <tr><td class="label-cell">Total Responses</td><td class="value-cell num-integer">${medicalRecords.length}</td></tr>
+            <tr><td class="label-cell">Total Employees Who Logged</td><td class="value-cell num-integer">${summary.employees}</td></tr>
+            <tr><td class="label-cell">Male Employees</td><td class="value-cell num-integer">${summary.male}</td></tr>
+            <tr><td class="label-cell">Female Employees</td><td class="value-cell num-integer">${summary.female}</td></tr>
+            <tr><td class="label-cell">Latest Response</td><td class="value-cell">${escapeHtml(medicalRecords.length && submittedValue(medicalRecords[0]) ? new Date(submittedValue(medicalRecords[0])).toLocaleString("en-PH") : "No data")}</td></tr>
+        </tbody>
+    </table>
+
+    ${rankingTable("Top 10 Medicines Given", medicineRows)}
+    ${rankingTable("Top 10 Chief Complaints", complaintRows)}
+    ${rankingTable("Top 10 Diagnoses", diagnosisRows)}
+</body>
+</html>`;
+
+            const blob = new Blob(["\\ufeff" + html], { type: "application/vnd.ms-excel;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `Medical_Statistics_${now.toISOString().slice(0, 10)}.xls`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
 
         function saveFormStatistics() {
