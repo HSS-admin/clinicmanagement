@@ -21,6 +21,8 @@
         let sharedStateTimer = null;
         let sharedStateLoadInProgress = false;
         let sharedStateSaveInProgress = false;
+        let sharedStateSaveQueued = false;
+        let sharedStateSaveTimer = null;
         let medicalLoadInProgress = false;
         let medicalLoadQueued = false;
         let currentUser = null;
@@ -120,11 +122,13 @@
             if (!currentUser?.access_token || sharedStateLoadInProgress) return;
             sharedStateLoadInProgress = true;
             try {
-                const rows = await supabaseRequest(`${SHARED_STATE_TABLE}?id=eq.${SHARED_STATE_ID}&select=state`, { cache: "no-store" });
+                const rows = await supabaseRequest(
+                    `${SHARED_STATE_TABLE}?id=eq.${SHARED_STATE_ID}&select=state,updated_at&_ts=${Date.now()}`,
+                    { method: "GET", cache: "no-store", headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } }
+                );
                 if (Array.isArray(rows) && rows[0]?.state) applySharedState(rows[0].state);
                 else if (Array.isArray(rows) && !rows.length) await saveSharedState();
             } catch (error) {
-                // Local storage remains a fallback when the shared table is not configured.
                 console.warn("Shared workspace state unavailable; using local data.", error);
             } finally {
                 sharedStateLoadInProgress = false;
@@ -132,8 +136,13 @@
         }
 
         async function saveSharedState() {
-            if (!currentUser?.access_token || sharedStateSaveInProgress) return;
+            if (!currentUser?.access_token) return;
+            if (sharedStateSaveInProgress) {
+                sharedStateSaveQueued = true;
+                return;
+            }
             sharedStateSaveInProgress = true;
+            sharedStateSaveQueued = false;
             try {
                 await supabaseRequest(SHARED_STATE_TABLE, {
                     method: "POST",
@@ -144,12 +153,16 @@
                 console.warn("Shared workspace state could not be saved.", error);
             } finally {
                 sharedStateSaveInProgress = false;
+                if (sharedStateSaveQueued) {
+                    sharedStateSaveQueued = false;
+                    scheduleSharedStateSave(0);
+                }
             }
         }
 
-        function scheduleSharedStateSave() {
-            clearTimeout(scheduleSharedStateSave.timer);
-            scheduleSharedStateSave.timer = setTimeout(saveSharedState, 150);
+        function scheduleSharedStateSave(delay = 150) {
+            clearTimeout(sharedStateSaveTimer);
+            sharedStateSaveTimer = setTimeout(() => saveSharedState(), delay);
         }
 
         async function refreshSupabaseSession() {
@@ -220,8 +233,11 @@
             }
             clearInterval(medicalRefreshTimer);
             clearInterval(sharedStateTimer);
+            clearTimeout(sharedStateSaveTimer);
             medicalRefreshTimer = null;
             sharedStateTimer = null;
+            sharedStateSaveTimer = null;
+            sharedStateSaveQueued = false;
             medicalRecords = [];
             medicalRecordsInitialized = false;
             medicineUsageCounts.clear();
@@ -300,7 +316,7 @@
             sharedStateTimer = setInterval(() => {
                 if (document.visibilityState !== "visible" || !currentUser?.access_token) return;
                 loadSharedState();
-            }, SHARED_STATE_REFRESH_MS);
+            }, Math.min(SHARED_STATE_REFRESH_MS, 2000));
             document.addEventListener("visibilitychange", () => {
                 if (document.visibilityState === "visible" && currentUser?.access_token) {
                     loadSharedState();
