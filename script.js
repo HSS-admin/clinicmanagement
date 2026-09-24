@@ -38,7 +38,23 @@
         const els = {};
         let medicalRecords = [];
         let medicalRecordsInitialized = false;
+        const PENDING_MEDICAL_UPDATES_KEY = "hse_pending_medical_updates";
         const pendingMedicalUpdates = new Map();
+        try {
+            const savedMedicalUpdates = JSON.parse(localStorage.getItem(PENDING_MEDICAL_UPDATES_KEY) || "[]");
+            if (Array.isArray(savedMedicalUpdates)) {
+                savedMedicalUpdates.forEach(([id, update]) => {
+                    if (id && update && typeof update === "object") pendingMedicalUpdates.set(String(id), update);
+                });
+            }
+        } catch {
+            localStorage.removeItem(PENDING_MEDICAL_UPDATES_KEY);
+        }
+
+        function persistPendingMedicalUpdates() {
+            localStorage.setItem(PENDING_MEDICAL_UPDATES_KEY, JSON.stringify([...pendingMedicalUpdates.entries()]));
+        }
+
         let notificationAudioContext = null;
         let notificationAudioUnlocked = false;
         let editingMedicalRecord = null;
@@ -450,7 +466,10 @@
                             // Keep the optimistic values until the list endpoint confirms
                             // that the spreadsheet row has actually been updated.
                             if (!serverHasUpdate) Object.assign(record, pendingUpdate);
-                            else pendingMedicalUpdates.delete(String(record.id));
+                            else {
+                                pendingMedicalUpdates.delete(String(record.id));
+                                persistPendingMedicalUpdates();
+                            }
                         });
                         const previousIds = new Set(medicalRecords.map(record => String(record.id)));
                         const hasNewRecords = medicalRecordsInitialized && nextRecords.some(record => !previousIds.has(String(record.id)));
@@ -778,6 +797,7 @@
             // Keep the edit visible while the spreadsheet list endpoint catches up.
             // Some Apps Script deployments return the previous row briefly after an update.
             pendingMedicalUpdates.set(String(record.id), update);
+            persistPendingMedicalUpdates();
             Object.assign(record, update);
             updateMedicineUsageCounts();
             closeMedicalRecordModal();
@@ -798,9 +818,12 @@
                     setMedicalSyncStatus("Saved — waiting for Google Sheets to confirm", "syncing");
                 } else {
                     await supabaseRequest(`${MEDICAL_TABLE}?id=eq.${encodeURIComponent(record.id)}`, { method:"PATCH", body: JSON.stringify(update), headers:{ Prefer:"return=minimal" } });
+                    pendingMedicalUpdates.delete(String(record.id));
+                    persistPendingMedicalUpdates();
                 }
             } catch (error) {
                 pendingMedicalUpdates.delete(String(record.id));
+                persistPendingMedicalUpdates();
                 console.error("Medical record save failed", error);
                 alert(`Unable to save this medical record: ${error.message || "Unknown error"}`);
             } finally {
