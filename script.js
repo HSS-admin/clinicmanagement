@@ -10,9 +10,17 @@
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
         const SUPABASE_KEY = "sb_publishable_AEa9iIzus4ziOzax0wcH6w_3aHz_evn";
         const MEDICAL_TABLE = "medical_records";
+        // Shared workspace state is stored in one Supabase row so all signed-in users
+        // see the same man-hours, supplies, and activity-calendar data.
+        const SHARED_STATE_TABLE = "hse_shared_state";
+        const SHARED_STATE_ID = 1;
+        const SHARED_STATE_REFRESH_MS = 5000;
         const SUPABASE_AUTH_URL = `${SUPABASE_URL}/auth/v1`;
         let realtimeChannel = null;
         let medicalRefreshTimer = null;
+        let sharedStateTimer = null;
+        let sharedStateLoadInProgress = false;
+        let sharedStateSaveInProgress = false;
         let medicalLoadInProgress = false;
         let medicalLoadQueued = false;
         let currentUser = null;
@@ -45,7 +53,7 @@
         if (typeof metrics.lastTickTimestamp !== "number") metrics.lastTickTimestamp = Date.now();
 
         function cache() {
-            ["liveClock","authGate","loginForm","loginEmail","loginPassword","togglePassword","authError","signedInUser","logoutButton","googleFormFrame","googleFormOpenLink","formResponseCount","formEmployeeCount","formMaleCount","formFemaleCount","formLatestResponse","formResponseInput","medicalSyncStatus","displayPeriodHours","periodSelect","displayHoursLost","displayDaysLost","displayTotalCount","displayMaleCount","displayFemaleCount","displayIncidentFreeDays","displayRatio","displayCompliance","adminPanelModal","inputMale","inputFemale","inputDaysLost","adminPassword","incidentLogBody","medicalRecordsHead","incidentModal","incidentDateTimeInput","incidentPersonInput","incidentTypeInput","incidentNatureInput","incidentCauseInput","incidentDaysAbsentInput","incidentSummaryInput","incidentPasswordInput","modalTitle","passwordModal","passwordInput","monthList","medicalRecordModal","medicalRecordsBody","topMedicines","topComplaints","topDiagnoses","recordBp","recordO2","recordPulse","recordTemp","recordMedicine","medicineSuggestions","recordStaff","recordComplaint","recordDiagnosis","recordRecommendation"].forEach(id => els[id] = document.getElementById(id));
+            ["liveClock","authGate","loginForm","loginEmail","loginPassword","togglePassword","authError","signedInUser","logoutButton","googleFormFrame","googleFormOpenLink","formResponseCount","formEmployeeCount","formMaleCount","formFemaleCount","formLatestResponse","formResponseInput","medicalSyncStatus","displayPeriodHours","periodSelect","displayHoursLost","displayDaysLost","displayTotalCount","displayMaleCount","displayFemaleCount","displayIncidentFreeDays","displayRatio","displayCompliance","adminPanelModal","inputMale","inputFemale","inputDaysLost","adminPassword","incidentLogBody","medicalRecordsHead","incidentModal","incidentDateTimeInput","incidentPersonInput","incidentTypeInput","incidentNatureInput","incidentCauseInput","incidentDaysAbsentInput","incidentSummaryInput","incidentPasswordInput","modalTitle","passwordModal","passwordInput","monthList","medicalRecordModal","medicalRecordsBody","topMedicines","topComplaints","topDiagnoses","recordBp","recordO2","recordPulse","recordTemp","recordMedicine","medicineSuggestions","recordStaff","recordComplaint","recordDiagnosis","recordRecommendation","supplyItem","supplyUnit","supplyDelivered","supplyConsumed","supplyReorder"].forEach(id => els[id] = document.getElementById(id));
             els.menuItems = document.querySelectorAll(".menu-item");
             els.appSections = document.querySelectorAll(".app-section");
         }
@@ -72,6 +80,76 @@
 
         function saveSession() {
             if (currentUser) sessionStorage.setItem("hse_supabase_session", JSON.stringify(currentUser));
+        }
+
+        function sharedStateSnapshot() {
+            return {
+                metrics: {
+                    maleCount: metrics.maleCount,
+                    femaleCount: metrics.femaleCount,
+                    manualDaysLost: metrics.manualDaysLost,
+                    liveSecondsAccumulated: metrics.liveSecondsAccumulated,
+                    incidentLogs: metrics.incidentLogs
+                },
+                supplies,
+                activities
+            };
+        }
+
+        function applySharedState(state) {
+            if (!state || typeof state !== "object") return;
+            if (state.metrics && typeof state.metrics === "object") {
+                metrics.maleCount = Number(state.metrics.maleCount) || 0;
+                metrics.femaleCount = Number(state.metrics.femaleCount) || 0;
+                metrics.manualDaysLost = Number(state.metrics.manualDaysLost) || 0;
+                if (typeof state.metrics.liveSecondsAccumulated === "number") metrics.liveSecondsAccumulated = state.metrics.liveSecondsAccumulated;
+                metrics.lastTickTimestamp = Date.now();
+                if (Array.isArray(state.metrics.incidentLogs)) metrics.incidentLogs = state.metrics.incidentLogs;
+            }
+            if (Array.isArray(state.supplies)) supplies = state.supplies;
+            if (Array.isArray(state.activities)) activities = state.activities;
+            localStorage.setItem(KEY, JSON.stringify(metrics));
+            saveSupplyData();
+            saveActivityData();
+            updateMedicineUsageCounts();
+            renderDashboard();
+            renderCalendar();
+        }
+
+        async function loadSharedState() {
+            if (!currentUser?.access_token || sharedStateLoadInProgress) return;
+            sharedStateLoadInProgress = true;
+            try {
+                const rows = await supabaseRequest(`${SHARED_STATE_TABLE}?id=eq.${SHARED_STATE_ID}&select=state`, { cache: "no-store" });
+                if (Array.isArray(rows) && rows[0]?.state) applySharedState(rows[0].state);
+                else if (Array.isArray(rows) && !rows.length) await saveSharedState();
+            } catch (error) {
+                // Local storage remains a fallback when the shared table is not configured.
+                console.warn("Shared workspace state unavailable; using local data.", error);
+            } finally {
+                sharedStateLoadInProgress = false;
+            }
+        }
+
+        async function saveSharedState() {
+            if (!currentUser?.access_token || sharedStateSaveInProgress) return;
+            sharedStateSaveInProgress = true;
+            try {
+                await supabaseRequest(SHARED_STATE_TABLE, {
+                    method: "POST",
+                    body: JSON.stringify({ id: SHARED_STATE_ID, state: sharedStateSnapshot(), updated_at: new Date().toISOString() }),
+                    headers: { Prefer: "resolution=merge-duplicates,return=minimal" }
+                });
+            } catch (error) {
+                console.warn("Shared workspace state could not be saved.", error);
+            } finally {
+                sharedStateSaveInProgress = false;
+            }
+        }
+
+        function scheduleSharedStateSave() {
+            clearTimeout(scheduleSharedStateSave.timer);
+            scheduleSharedStateSave.timer = setTimeout(saveSharedState, 150);
         }
 
         async function refreshSupabaseSession() {
@@ -126,6 +204,7 @@
             els.menuItems.forEach(item => item.classList.toggle("active", item.dataset.section === activeSection));
             els.appSections.forEach(section => section.classList.toggle("active", section.id === activeSection));
             setupRealtimeUpdates();
+            loadSharedState();
             loadMedicalRecords();
         }
 
@@ -140,9 +219,13 @@
                 realtimeChannel = null;
             }
             clearInterval(medicalRefreshTimer);
+            clearInterval(sharedStateTimer);
             medicalRefreshTimer = null;
+            sharedStateTimer = null;
             medicalRecords = [];
             medicalRecordsInitialized = false;
+            medicineUsageCounts.clear();
+            renderSupplies();
             els.authGate.hidden = false;
             els.logoutButton.hidden = true;
             els.signedInUser.textContent = "Not signed in";
@@ -208,17 +291,27 @@
         }
 
         function setupRealtimeUpdates() {
-            // Polling keeps Google Form rows current even when no realtime bridge is configured.
+            // Polling keeps shared workspace data current for every signed-in user.
             if (medicalRefreshTimer) clearInterval(medicalRefreshTimer);
+            if (sharedStateTimer) clearInterval(sharedStateTimer);
             medicalRefreshTimer = setInterval(() => {
                 if (document.visibilityState === "visible" && activeSection === "googleFormSection") loadMedicalRecords();
             }, 10000);
+            sharedStateTimer = setInterval(() => {
+                if (document.visibilityState !== "visible" || !currentUser?.access_token) return;
+                loadSharedState();
+            }, SHARED_STATE_REFRESH_MS);
             document.addEventListener("visibilitychange", () => {
-                if (document.visibilityState === "visible" && currentUser?.access_token) loadMedicalRecords();
+                if (document.visibilityState === "visible" && currentUser?.access_token) {
+                    loadSharedState();
+                    if (activeSection === "googleFormSection") loadMedicalRecords();
+                }
             });
         }
 
         function setupMedicalRecords() {
+            const medicineList = document.getElementById("medicineList");
+            if (medicineList) medicineList.innerHTML = MEDICINES.map(medicine => `<option value="${escapeHtml(medicine)}"></option>`).join("");
             els.recordMedicine.addEventListener("input", renderMedicineSuggestions);
             els.recordMedicine.addEventListener("focus", renderMedicineSuggestions);
             els.recordMedicine.addEventListener("keydown", event => {
@@ -329,6 +422,7 @@
                         const previousIds = new Set(medicalRecords.map(record => String(record.id)));
                         const hasNewRecords = medicalRecordsInitialized && nextRecords.some(record => !previousIds.has(String(record.id)));
                         medicalRecords = nextRecords;
+                        updateMedicineUsageCounts();
                         medicalRecordsInitialized = true;
                         if (hasNewRecords) playNewRecordNotification();
                         renderMedicalRecords();
@@ -652,6 +746,7 @@
             // Some Apps Script deployments return the previous row briefly after an update.
             pendingMedicalUpdates.set(String(record.id), update);
             Object.assign(record, update);
+            updateMedicineUsageCounts();
             closeMedicalRecordModal();
             renderMedicalRecords();
             renderFormStatistics();
@@ -839,6 +934,7 @@
 
             save();
             renderDashboard();
+            scheduleSharedStateSave();
             closeIncidentModal();
         }
 
@@ -859,6 +955,7 @@
             metrics.manualDaysLost = parseFloat(els.inputDaysLost.value) || 0;
             save();
             renderDashboard();
+            scheduleSharedStateSave();
             els.adminPassword.value = "";
             toggleAdminPanel();
         }
@@ -883,6 +980,7 @@
                 metrics.incidentLogs.splice(passwordActionIndex, 1);
                 save();
                 renderDashboard();
+                scheduleSharedStateSave();
             }
             closePasswordModal();
         }
@@ -1077,7 +1175,177 @@
             if (totalStaff > 0 && isWorkingDay()) metrics.liveSecondsAccumulated = (parseInt(metrics.liveSecondsAccumulated) || 0) + 1;
             metrics.lastTickTimestamp = Date.now();
             save();
+            scheduleSharedStateSave();
             renderDashboard();
+        }
+
+        const SUPPLIES_KEY = "hse_supply_tracker";
+        const ACTIVITIES_KEY = "hse_activity_calendar";
+        let supplies = JSON.parse(localStorage.getItem(SUPPLIES_KEY) || "[]");
+        let activities = JSON.parse(localStorage.getItem(ACTIVITIES_KEY) || "[]");
+        let medicineUsageCounts = new Map();
+        let editingSupplyIndex = null;
+        let editingActivityIndex = null;
+        let calendarDate = new Date();
+
+        function saveSupplyData() { localStorage.setItem(SUPPLIES_KEY, JSON.stringify(supplies)); }
+        function saveActivityData() { localStorage.setItem(ACTIVITIES_KEY, JSON.stringify(activities)); }
+        function supplyNumber(id) { return Math.max(0, parseFloat(document.getElementById(id).value) || 0); }
+
+        function medicineMatchKey(value) {
+            return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+        }
+
+        function updateMedicineUsageCounts() {
+            medicineUsageCounts = new Map();
+            medicalRecords.forEach(record => {
+                const medicine = clinicalValue(record, MEDICAL_FIELD_ALIASES.medicine);
+                if (!medicine) return;
+                const key = medicineMatchKey(medicine);
+                medicineUsageCounts.set(key, (medicineUsageCounts.get(key) || 0) + 1);
+            });
+            renderSupplies();
+        }
+
+        function recordedConsumption(item) {
+            return medicineUsageCounts.get(medicineMatchKey(item)) || 0;
+        }
+
+        function supplyConsumedValue(item) {
+            return Math.max(0, (parseFloat(item.consumed) || 0) + recordedConsumption(item.item));
+        }
+        function openSupplyModal(index = null) {
+            editingSupplyIndex = index;
+            const modal = document.getElementById("supplyModal");
+            const title = document.getElementById("supplyModalTitle");
+            const item = index === null ? {} : (supplies[index] || {});
+            if (!modal || !els.supplyItem || !els.supplyUnit || !els.supplyDelivered || !els.supplyConsumed || !els.supplyReorder) return;
+            if (title) title.textContent = index === null ? "Add Supply Entry" : "Edit Supply Entry";
+            els.supplyItem.value = item.item || "";
+            els.supplyUnit.value = item.unit || "";
+            els.supplyDelivered.value = item.delivered ?? "";
+            els.supplyConsumed.value = item.consumed ?? "";
+            els.supplyReorder.value = item.reorder ?? "";
+            const usage = recordedConsumption(item.item);
+            els.supplyConsumed.placeholder = usage ? `Manual consumption (medical records add ${usage})` : "Manual consumption";
+            modal.classList.add("visible");
+        }
+        function closeSupplyModal() { document.getElementById("supplyModal").classList.remove("visible"); editingSupplyIndex = null; }
+        function mergeDuplicateSupplies() {
+            const merged = new Map();
+            supplies.forEach(entry => {
+                const itemName = String(entry.item || entry.name || "").trim();
+                const key = normalizedKey(itemName);
+                if (!key) return;
+                const existing = merged.get(key);
+                if (!existing) {
+                    merged.set(key, { ...entry, item: itemName });
+                    return;
+                }
+                existing.delivered = (parseFloat(existing.delivered) || 0) + (parseFloat(entry.delivered) || 0);
+                existing.consumed = (parseFloat(existing.consumed) || 0) + (parseFloat(entry.consumed) || 0);
+                existing.reorder = Math.max(parseFloat(existing.reorder) || 0, parseFloat(entry.reorder) || 0);
+                if (!existing.unit && entry.unit) existing.unit = entry.unit;
+            });
+            supplies = Array.from(merged.values());
+            localStorage.setItem(SUPPLIES_KEY, JSON.stringify(supplies));
+        }
+
+        function saveSupply() {
+    const item = els.supplyItem.value.trim();
+    if (!item) return alert("Supply or medicine name is required.");
+    const editingIndex = typeof editingSupplyIndex === "number" ? editingSupplyIndex : -1;
+    const existingIndex = supplies.findIndex((entry, index) => index !== editingIndex && normalizedKey(entry.item || entry.name) === normalizedKey(item));
+    
+    if (existingIndex >= 0) {
+        const existing = supplies[existingIndex];
+        existing.unit = els.supplyUnit.value.trim() || existing.unit || "";
+        existing.delivered = (parseFloat(existing.delivered) || 0) + (parseFloat(els.supplyDelivered.value) || 0);
+        existing.consumed = (parseFloat(existing.consumed) || 0) + (parseFloat(els.supplyConsumed.value) || 0);
+        existing.reorder = parseFloat(els.supplyReorder.value) || existing.reorder || 0;
+                        localStorage.setItem(SUPPLIES_KEY, JSON.stringify(supplies));
+        scheduleSharedStateSave();
+        closeSupplyModal();
+        renderSupplies();
+        return;
+    }
+     
+    const entry = { 
+        item, 
+        unit: document.getElementById("supplyUnit").value.trim() || "units", 
+        delivered: supplyNumber("supplyDelivered"), 
+        consumed: supplyNumber("supplyConsumed"), 
+        reorder: supplyNumber("supplyReorder") 
+    };
+    
+    if (editingSupplyIndex === null) {
+        supplies.push(entry); 
+    } else {
+        supplies[editingSupplyIndex] = entry;
+    }
+    
+                saveSupplyData();
+    scheduleSharedStateSave();
+    closeSupplyModal();
+    renderSupplies();
+}
+
+        function deleteSupply(index) { if (confirm("Delete this supply entry?")) { supplies.splice(index, 1); saveSupplyData(); scheduleSharedStateSave(); renderSupplies(); } }
+        function renderSupplies() {
+            mergeDuplicateSupplies();
+            let low = 0, delivered = 0, consumed = 0;
+            const body = document.getElementById("suppliesBody");
+            body.innerHTML = supplies.length ? supplies.map((s, index) => {
+                const deliveredQuantity = Math.max(0, parseFloat(s.delivered) || 0);
+                const medicalUsed = recordedConsumption(s.item);
+                const totalConsumed = supplyConsumedValue(s);
+                const stock = Math.max(0, deliveredQuantity - totalConsumed);
+                // Calculate and display the rate for this medicine only.
+                const rate = deliveredQuantity > 0 ? (totalConsumed / deliveredQuantity) * 100 : 0;
+                const isLow = stock <= (parseFloat(s.reorder) || 0);
+                if (isLow) low++;
+                delivered += deliveredQuantity;
+                consumed += totalConsumed;
+                const consumptionLabel = medicalUsed ? `${totalConsumed} <small title="${medicalUsed} medical record${medicalUsed === 1 ? "" : "s"}">(${medicalUsed} medical)</small>` : totalConsumed;
+                return `<tr><td>${escapeHtml(s.item)}</td><td>${escapeHtml(s.unit)}</td><td>${deliveredQuantity}</td><td>${consumptionLabel}</td><td><strong>${stock}</strong></td><td>${s.reorder}</td><td><strong>${rate.toFixed(1)}%</strong></td><td><span class="${isLow ? "status-low" : "status-ok"}">${isLow ? "REPLENISH" : "OK"}</span></td><td><div class="log-actions"><button class="edit" onclick="openSupplyModal(${index})">Edit</button><button class="delete" onclick="deleteSupply(${index})">Delete</button></div></td></tr>`;
+            }).join("") : `<tr><td colspan="9" class="no-log">No supply entries recorded.</td></tr>`;
+            document.getElementById("supplyItemCount").textContent = supplies.length;
+            document.getElementById("supplyLowCount").textContent = low;
+            document.getElementById("supplyDeliveredTotal").textContent = delivered;
+            document.getElementById("supplyConsumedTotal").textContent = consumed;
+            document.getElementById("supplyConsumptionRate").textContent = delivered > 0 ? `${(consumed / delivered * 100).toFixed(1)}%` : "0%";
+            document.getElementById("supplyNotifications").innerHTML = low ? `<div class="supply-alert">⚠️ Replenishment needed for ${low} item${low === 1 ? "" : "s"}. Check the rows marked REPLENISH.</div>` : `<div class="supply-ok">✓ All tracked supplies are above their reorder levels.</div>`;
+        }
+        function openActivityModal(index = null, date = "") {
+            editingActivityIndex = index;
+            const item = index === null ? { date } : activities[index];
+            document.getElementById("activityModalTitle").textContent = index === null ? "Schedule Activity" : "Edit Activity";
+            document.getElementById("activityDate").value = item.date || date;
+            document.getElementById("activityTitle").value = item.title || "";
+            document.getElementById("activityTime").value = item.time || "";
+            document.getElementById("activityLocation").value = item.location || "";
+            document.getElementById("activityModal").classList.add("visible");
+        }
+        function closeActivityModal() { document.getElementById("activityModal").classList.remove("visible"); editingActivityIndex = null; }
+        function saveActivity() {
+            const entry = { date: document.getElementById("activityDate").value, title: document.getElementById("activityTitle").value.trim(), time: document.getElementById("activityTime").value, location: document.getElementById("activityLocation").value.trim() };
+            if (!entry.date || !entry.title) return alert("Date and activity are required.");
+            if (editingActivityIndex === null) activities.push(entry); else activities[editingActivityIndex] = entry;
+            saveActivityData(); scheduleSharedStateSave(); closeActivityModal(); renderCalendar();
+        }
+        function deleteActivity(index) { if (confirm("Delete this activity?")) { activities.splice(index, 1); saveActivityData(); scheduleSharedStateSave(); renderCalendar(); } }
+        function changeCalendarMonth(offset) { calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + offset, 1); renderCalendar(); }
+        function renderCalendar() {
+            const year = calendarDate.getFullYear(), month = calendarDate.getMonth(), first = new Date(year, month, 1), days = new Date(year, month + 1, 0).getDate(), start = first.getDay();
+            document.getElementById("calendarMonthLabel").textContent = calendarDate.toLocaleString("en-US", { month: "long", year: "numeric" });
+            const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+            let html = names.map(name => `<div class="calendar-day-name">${name}</div>`).join("");
+            for (let cell = 0; cell < 42; cell++) {
+                const day = cell - start + 1, date = new Date(year, month, day), dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`, current = day > 0 && day <= days, today = dateKey === new Date().toISOString().slice(0, 10);
+                const entries = current ? activities.map((a, i) => ({ ...a, index: i })).filter(a => a.date === dateKey) : [];
+                html += `<div class="calendar-day ${current ? "" : "other-month"} ${today ? "today" : ""}"><div class="calendar-date">${date.getDate()}</div>${entries.map(a => `<div class="activity-entry"><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml([a.time, a.location].filter(Boolean).join(" • "))}</small><div class="activity-actions"><button class="edit" onclick="openActivityModal(${a.index})">Edit</button><button class="delete" onclick="deleteActivity(${a.index})">×</button></div></div>`).join("")}${current ? `<button class="calendar-add" onclick="openActivityModal(null, '${dateKey}')">＋</button>` : ""}</div>`;
+            }
+            document.getElementById("activityCalendar").innerHTML = html;
         }
 
         cache();
@@ -1089,5 +1357,7 @@
         updateClock();
         save();
         renderDashboard();
+        renderSupplies();
+        renderCalendar();
         setInterval(tick, 1000);
     
