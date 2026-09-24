@@ -23,6 +23,8 @@
         let sharedStateSaveInProgress = false;
         let sharedStateSaveQueued = false;
         let sharedStateSaveTimer = null;
+        let sharedStateUpdatedAt = "";
+        let sharedStateLocalChangePending = false;
         let medicalLoadInProgress = false;
         let medicalLoadQueued = false;
         let currentUser = null;
@@ -98,8 +100,13 @@
             };
         }
 
-        function applySharedState(state) {
+        function applySharedState(state, updatedAt = "") {
             if (!state || typeof state !== "object") return;
+            // Do not let a polling response overwrite a calendar/supply/man-hours
+            // edit that is still waiting to be written to Supabase.
+            if (sharedStateLocalChangePending) return;
+            if (updatedAt && sharedStateUpdatedAt && new Date(updatedAt) < new Date(sharedStateUpdatedAt)) return;
+            if (updatedAt) sharedStateUpdatedAt = updatedAt;
             if (state.metrics && typeof state.metrics === "object") {
                 metrics.maleCount = Number(state.metrics.maleCount) || 0;
                 metrics.femaleCount = Number(state.metrics.femaleCount) || 0;
@@ -126,8 +133,11 @@
                     `${SHARED_STATE_TABLE}?id=eq.${SHARED_STATE_ID}&select=state,updated_at&_ts=${Date.now()}`,
                     { method: "GET", cache: "no-store", headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } }
                 );
-                if (Array.isArray(rows) && rows[0]?.state) applySharedState(rows[0].state);
-                else if (Array.isArray(rows) && !rows.length) await saveSharedState();
+                if (Array.isArray(rows) && rows[0]?.state) {
+                    applySharedState(rows[0].state, rows[0].updated_at);
+                } else if (Array.isArray(rows) && !rows.length) {
+                    await saveSharedState();
+                }
             } catch (error) {
                 console.warn("Shared workspace state unavailable; using local data.", error);
             } finally {
@@ -137,6 +147,7 @@
 
         async function saveSharedState() {
             if (!currentUser?.access_token) return;
+            sharedStateLocalChangePending = true;
             if (sharedStateSaveInProgress) {
                 sharedStateSaveQueued = true;
                 return;
@@ -144,15 +155,18 @@
             sharedStateSaveInProgress = true;
             sharedStateSaveQueued = false;
             try {
+                const updatedAt = new Date().toISOString();
                 await supabaseRequest(SHARED_STATE_TABLE, {
                     method: "POST",
-                    body: JSON.stringify({ id: SHARED_STATE_ID, state: sharedStateSnapshot(), updated_at: new Date().toISOString() }),
-                    headers: { Prefer: "resolution=merge-duplicates,return=minimal" }
+                    body: JSON.stringify({ id: SHARED_STATE_ID, state: sharedStateSnapshot(), updated_at: updatedAt }),
+                    headers: { Prefer: "resolution=merge-duplicates,return=minimal", "Cache-Control": "no-cache" }
                 });
+                sharedStateUpdatedAt = updatedAt;
             } catch (error) {
                 console.warn("Shared workspace state could not be saved.", error);
             } finally {
                 sharedStateSaveInProgress = false;
+                sharedStateLocalChangePending = false;
                 if (sharedStateSaveQueued) {
                     sharedStateSaveQueued = false;
                     scheduleSharedStateSave(0);
@@ -161,6 +175,7 @@
         }
 
         function scheduleSharedStateSave(delay = 150) {
+            sharedStateLocalChangePending = true;
             clearTimeout(sharedStateSaveTimer);
             sharedStateSaveTimer = setTimeout(() => saveSharedState(), delay);
         }
@@ -238,6 +253,8 @@
             sharedStateTimer = null;
             sharedStateSaveTimer = null;
             sharedStateSaveQueued = false;
+            sharedStateUpdatedAt = "";
+            sharedStateLocalChangePending = false;
             medicalRecords = [];
             medicalRecordsInitialized = false;
             medicineUsageCounts.clear();
