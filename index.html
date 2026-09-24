@@ -37,6 +37,8 @@
     <nav class="main-menu" aria-label="Main menu">
         <button class="menu-item active" type="button" data-section="manhoursSection">📊 Man-Hours Counter</button>
         <button class="menu-item" type="button" data-section="googleFormSection">📝 Clinic Management</button>
+        <button class="menu-item" type="button" data-section="suppliesSection">📦 Supplies</button>
+        <button class="menu-item" type="button" data-section="calendarSection">📅 Calendar of Activities</button>
     </nav>
 
     <main id="manhoursSection" class="app-section active">
@@ -181,6 +183,72 @@
             </section>
         </section>
     </main>
+
+    <main id="suppliesSection" class="app-section">
+        <section class="panel supplies-panel">
+            <div class="header-row">
+                <div>
+                    <h2 class="panel-title" style="margin-bottom:0">Supplies Tracker</h2>
+                    <p class="form-help">Track deliveries, consumption, current stock, and replenishment needs. Medicines recorded in Medical Records are automatically deducted from matching inventory items.</p>
+                </div>
+                <button class="btn btn-primary" type="button" onclick="openSupplyModal()">＋ Add Supply Entry</button>
+            </div>
+            <div class="statistics-grid supply-statistics">
+                <div class="stat-item"><span>Total Items</span><strong id="supplyItemCount">0</strong></div>
+                <div class="stat-item"><span>Items to Replenish</span><strong id="supplyLowCount">0</strong></div>
+                <div class="stat-item"><span>Total Delivered</span><strong id="supplyDeliveredTotal">0</strong></div>
+                <div class="stat-item"><span>Total Consumed</span><strong id="supplyConsumedTotal">0</strong></div>
+                <div class="stat-item"><span>Overall Consumption Rate</span><strong id="supplyConsumptionRate">0%</strong></div>
+            </div>
+            <div id="supplyNotifications" class="supply-notifications" aria-live="polite"></div>
+            <div class="table-scroll">
+                <table class="incident-table supplies-table">
+                    <thead><tr><th>Medicine / Item</th><th>Unit</th><th>Delivered</th><th>Consumed</th><th>Current Stock</th><th>Reorder Level</th><th>Rate per Medicine</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody id="suppliesBody"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <main id="calendarSection" class="app-section">
+        <section class="panel calendar-panel">
+            <div class="header-row">
+                <div>
+                    <h2 class="panel-title" style="margin-bottom:0">Calendar of Activities</h2>
+                    <p class="form-help">Monthly activity schedule for clinic and HSE operations.</p>
+                </div>
+                <div class="calendar-controls"><button class="btn btn-card" type="button" onclick="changeCalendarMonth(-1)">‹</button><strong id="calendarMonthLabel"></strong><button class="btn btn-card" type="button" onclick="changeCalendarMonth(1)">›</button><button class="btn btn-primary" type="button" onclick="openActivityModal()">＋ Schedule Activity</button></div>
+            </div>
+            <div class="activity-calendar" id="activityCalendar"></div>
+        </section>
+    </main>
+
+    <div class="modal" id="supplyModal" aria-hidden="true">
+        <div class="modal-card">
+            <h3 id="supplyModalTitle">Add Supply Entry</h3>
+            <div class="form-grid">
+                <div class="group"><label for="supplyItem">Supply / Medicine</label><input id="supplyItem" list="medicineList" type="text" placeholder="Select or type an item" required><datalist id="medicineList"></datalist></div>
+                <div class="group"><label for="supplyUnit">Unit</label><input id="supplyUnit" type="text" placeholder="boxes, pieces, bottles"></div>
+                <div class="group"><label for="supplyDelivered">Delivered Quantity</label><input id="supplyDelivered" type="number" min="0" step="any"></div>
+                <div class="group"><label for="supplyConsumed">Consumed Quantity</label><input id="supplyConsumed" type="number" min="0" step="any"></div>
+                <div class="group"><label for="supplyReorder">Reorder Level</label><input id="supplyReorder" type="number" min="0" step="any"></div>
+            </div>
+            <div class="actions"><button class="btn btn-danger" type="button" onclick="closeSupplyModal()">Cancel</button><button class="btn btn-primary" type="button" onclick="saveSupply()">Save Entry</button></div>
+        </div>
+    </div>
+
+    <div class="modal" id="activityModal" aria-hidden="true">
+        <div class="modal-card">
+            <h3 id="activityModalTitle">Schedule Activity</h3>
+            <div class="form-grid">
+                <div class="group"><label for="activityDate">Date</label><input id="activityDate" type="date" required></div>
+                <div class="group"><label for="activityTitle">Activity</label><input id="activityTitle" type="text" placeholder="e.g. Monthly safety meeting" required></div>
+                <div class="group"><label for="activityTime">Time</label><input id="activityTime" type="time"></div>
+                <div class="group"><label for="activityLocation">Location / Person in Charge</label><input id="activityLocation" type="text" placeholder="Optional"></div>
+            </div>
+            <div class="actions"><button class="btn btn-danger" type="button" onclick="closeActivityModal()">Cancel</button><button class="btn btn-primary" type="button" onclick="saveActivity()">Save Activity</button></div>
+        </div>
+    </div>
 
     <div class="modal" id="medicalRecordModal" aria-hidden="true">
         <a href="/" style="display:none;">Link</a>
