@@ -4,7 +4,7 @@
         // Leave blank to keep using the existing Supabase medical_records table.
         // Add the deployed Apps Script /exec URL here after deploying the Sheets API.
         // A placeholder URL must remain disabled; otherwise every refresh fails with "Failed to fetch".
-        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbywdPp6K_UC9Me-9fGJNBmZOThr2WO59Fxs-PKdr7gF6LJTZuZ6hruBkMeh2WMpnIu5Xg/exec";
+        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbzc6eBL-yxLXtjKDZbMoCBWc7r2nDWj0QT7cyLsoLClIvJ35KCxVTh43hj5ozmsLqlLog/exec";
         const GOOGLE_SHEET_TAB = "Form Responses 1";
         const GOOGLE_SHEETS_REQUEST_TIMEOUT_MS = 30000;
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
@@ -345,7 +345,7 @@
             if (sharedStateTimer) clearInterval(sharedStateTimer);
             medicalRefreshTimer = setInterval(() => {
                 if (document.visibilityState === "visible" && activeSection === "googleFormSection") loadMedicalRecords();
-            }, 10000);
+            }, 3000);
             sharedStateTimer = setInterval(() => {
                 if (document.visibilityState !== "visible" || !currentUser?.access_token) return;
                 loadSharedState();
@@ -447,6 +447,11 @@
                             ? payload
                             : (payload.records || payload.rows || payload.data?.records || payload.data?.rows || payload.data?.values || []);
                         const nextRecords = rawRecords.map(record => normalizeMedicalRecord(record, sheetHeaders));
+                        // Apps Script merges clinical fields from Supabase. Keep a
+                        // stable key for pending optimistic edits across refreshes.
+                        nextRecords.forEach(record => {
+                            if (!record.id && record.rowNumber) record.id = String(record.rowNumber);
+                        });
                         nextRecords.forEach(record => {
                             const recordKey = medicalRecordKey(record);
                             const pendingUpdate = pendingMedicalUpdates.get(recordKey) || pendingMedicalUpdates.get(String(record.id));
