@@ -415,6 +415,12 @@
             };
         }
 
+        // Spreadsheet row numbers remain stable even when Apps Script returns a
+        // different generated id after a refresh.
+        function medicalRecordKey(record) {
+            return String(record?.rowNumber || record?.row || record?.rowIndex || record?.id || "");
+        }
+
         async function loadMedicalRecords() {
             animateRefreshButtons();
             if (!currentUser?.access_token) {
@@ -442,7 +448,8 @@
                             : (payload.records || payload.rows || payload.data?.records || payload.data?.rows || payload.data?.values || []);
                         const nextRecords = rawRecords.map(record => normalizeMedicalRecord(record, sheetHeaders));
                         nextRecords.forEach(record => {
-                            const pendingUpdate = pendingMedicalUpdates.get(String(record.id));
+                            const recordKey = medicalRecordKey(record);
+                            const pendingUpdate = pendingMedicalUpdates.get(recordKey) || pendingMedicalUpdates.get(String(record.id));
                             if (!pendingUpdate) return;
 
                             // Apps Script returns the sheet's question headers, while the
@@ -467,6 +474,7 @@
                             // that the spreadsheet row has actually been updated.
                             if (!serverHasUpdate) Object.assign(record, pendingUpdate);
                             else {
+                                pendingMedicalUpdates.delete(recordKey);
                                 pendingMedicalUpdates.delete(String(record.id));
                                 persistPendingMedicalUpdates();
                             }
@@ -796,7 +804,11 @@
 
             // Keep the edit visible while the spreadsheet list endpoint catches up.
             // Some Apps Script deployments return the previous row briefly after an update.
-            pendingMedicalUpdates.set(String(record.id), update);
+            const recordKey = medicalRecordKey(record);
+            pendingMedicalUpdates.set(recordKey, update);
+            // Keep the id alias for older pending entries and records without a
+            // spreadsheet row number.
+            if (recordKey !== String(record.id)) pendingMedicalUpdates.delete(String(record.id));
             persistPendingMedicalUpdates();
             Object.assign(record, update);
             updateMedicineUsageCounts();
