@@ -4,7 +4,7 @@
         // Leave blank to keep using the existing Supabase medical_records table.
         // Add the deployed Apps Script /exec URL here after deploying the Sheets API.
         // A placeholder URL must remain disabled; otherwise every refresh fails with "Failed to fetch".
-        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbxdQ45ZeXnYPZWUMFbZelFGGC3JooCXDbiK1vdP9LtnqlWYE0wWJHLbA9D7a8beo1iN9A/exec";
+        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbzmaP9P_WrhhlnI3CCVQdOT8ywHJO1UUG8eHoQwfGKUCd8n9tbwSU6_ZJBBcd5Jb8vAAQ/exec";
         const GOOGLE_SHEET_TAB = "Form Responses 1";
         const GOOGLE_SHEETS_REQUEST_TIMEOUT_MS = 30000;
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
@@ -32,9 +32,59 @@
         const STANDARD_SHIFT_HOURS = 8;
         const HOLIDAYS = ["01-01","02-17","03-20","04-02","04-03","04-04","04-09","05-01","05-27","06-12","08-21","08-31","11-01","11-02","11-30","12-08","12-24","12-25","12-30","12-31","08-30"];
         const KEY = "hse_dashboard_metrics";
+
         const MEDICINES = [
-            "Advil soft gel cap 200mg", "Alaxan FR 500 mg", "Betahistine 8 mg tab", "Betahistine 16 mg tab", "Bioflu 500 mg", "Biogesic 500 mg", "Bonamine / Meclizine", "Buscopan Venus tab 10mg", "Butamirate Citrate 50 mg", "Calmoseptine Ointment", "Carbocisteine Solmux", "Celecoxib", "Cetirizine 10 mg tab", "Clonidine 75 mcg ( Catapres )", "Decolgen Non-Drowse", "Gaviscon Sachet", "Hyoscine 10 mg tab", "Kamillosan Spray", "Kremil-s tab", "Loperamide ( Diatabs )", "Mefenamic Acid", "Metoclopramide Hydrochloride", "Myonal tab 50mg", "Neozep non-drowsy tab", "Omeprazol 20mg Ritemed", "Oral Rehydrate Solution Sachet", "Salbutamol neb 1ml", "Salbutamol tab", "Silver Sulfadiazine 25mg", "Strepsils Cool", "Strepsils Oranges", "Tobramycine Eyedrop", "Tranexamic acid cap 500mg", "Tuseran Forte", "Visine Eyedrop", "Bactidol oral antiseptic soln 120ml", "Band aid/ mediplast bantam plastic / strip", "Betadine wound soln 10% 60 ml", "Brown paper bag", "Burn ointment", "Cleene cotton balls 50's", "Dextran (gentle tears) ampule", "Drixine nasal spray 0.05% 15ml", "Elastic bandage 4x5 nmv", "Examination gloves (L) Disposable /box", "Face Mask/box", "Flammazine (Silver Sulfadiazine) 10mg/g 5g Cream Antibacterial", "Gauze 4x4", "Glucometer lancet", "Glucometer strips", "Hot Compress Bag", "Hydrogen Peroxide 3% solution (antiseptic/disinfectant) 500mL", "Ice pack", "Isopropyl alc 70% 3.2 Liters", "Kamillosan m spry soln 15ml", "Little pals cotton buds 108tips", "Little pals cotton buds 200tips", "Nasal cannula (adult)", "Neb.kit", "Salonpas patch", "Sterile gauze 4x4/pack", "Tobradex/tobramycin", "Tongue depressor senior/box", "White flower #3", "White flower 10 ml", "White flower 20ml"
+            "Advil soft gel cap 200mg", "Alaxan FR 500 mg", "Betahistine 8 mg tab", "Betahistine 16 mg tab", "Bioflu 500 mg", "Biogesic 500 mg", "Bonamine / Meclizine", "Buscopan Venus tab 10mg", "Butamirate Citrate 50 mg", 
+            "Calmoseptine Ointment", "Carbocisteine Solmux", "Celecoxib", "Cetirizine 10 mg tab", "Clonidine 75 mcg ( Catapres )", "Decolgen Non-Drowse", "Gaviscon Sachet", "Hyoscine 10 mg tab", "Kamillosan Spray", "Kremil-s tab", 
+            "Loperamide ( Diatabs )", "Mefenamic Acid", "Metoclopramide Hydrochloride", "Myonal tab 50mg", "Neozep non-drowsy tab", "Omeprazol 20mg Ritemed", "Oral Rehydrate Solution Sachet", "Salbutamol neb 1ml", "Salbutamol tab", 
+            "Silver Sulfadiazine 25mg", "Strepsils Cool", "Strepsils Oranges", "Tobramycine Eyedrop", "Tranexamic acid cap 500mg", "Tuseran Forte", "Visine Eyedrop", "Bactidol oral antiseptic soln 120ml", "Band aid/ mediplast bantam plastic / strip", 
+            "Betadine wound soln 10% 60 ml", "Brown paper bag", "Burn ointment", "Cleene cotton balls 50's", "Dextran (gentle tears) ampule", "Drixine nasal spray 0.05% 15ml", "Elastic bandage 4x5 nmv", "Examination gloves (L) Disposable /box", "Face Mask/box", 
+            "Flammazine (Silver Sulfadiazine) 10mg/g 5g Cream Antibacterial", "Gauze 4x4", "Glucometer lancet", "Glucometer strips", "Hot Compress Bag", "Hydrogen Peroxide 3% solution (antiseptic/disinfectant) 500mL", "Ice pack", "Isopropyl alc 70% 3.2 Liters", 
+            "Kamillosan m spry soln 15ml", "Little pals cotton buds 108tips", "Little pals cotton buds 200tips", "Nasal cannula (adult)", "Neb.kit", "Salonpas patch", "Sterile gauze 4x4/pack", "Tobradex/tobramycin", "Tongue depressor senior/box", "White flower #3", 
+            "White flower 10 ml", "White flower 20ml"
         ];
+
+        const CHIEF_COMPLAINTS = [
+    "Abdominal Pain", "Allergy", "Anxiety", "Arm pain", "Asthma", "Back pain", "Bleeding", "Bleeding Gums", "Blister",
+    "Bloated", "Body Pain", "Body Weakness", "Boils", "Bruises", "Burn", "Chest Heaviness", "Chest pain", "Chills", "Clogged nose",
+    "Colds",  "Constipation", "Cough", "Difficulty of Breathing", "Difficulty of Swallowing", "Dizziness", "Dysmenorrhea", "Dysuria",
+    "Ear Pain", "Edema", "Elbow pain", "Elevated blood pressure", "Epigastric pain(Hyperacidity)","Eye Dryness", "Eye Irritation",
+    "Eye pain", "Eye strain", "Fever", "Finger pain", "Flank pain", "Flatulence", "Foot Pain", "Hand pain", "Headache",
+    "Heartburn", "Hematuria", "Hemorrhoids", "Hiccups", "Hoarseness of voice", "Hypogastric pain", "Immobility", "Indigestion",
+    "Inflammation", "Insect Bite", "Irritated Eyes", "Itchiness", "Itchy Throat", "Jaw Pain", "Joint pain", "Knee Pain",
+    "Left Lower Quadrant Pain", "Left Upper Quadrant Pain", "Leg pain", "Loose Bowel Movement(LBM)", "Loss of consciousness",
+    "Low back Pain", "Mouth sore", "Muscle pain", "Nape Pain", "Nauseated", "Neck Pain", "Nerve Pain", "Nose Bleeding", "Numbness of Extremity(Lower)",
+    "Numbness of Extremity(Upper)", "Numbness of nape", "Pain on the genital area", "Palpitation", "Right Lower Quadrant Pain", "Right Upper Quadrant Pain",
+    "Runny nose", "Shortness of breath", "Shoulder pain", "Skin Rashes", "Sleeplessness", "Sneezing", "Sore Eyes", "Sore lips", "Sorethroat", "Sprain",
+    "Stiffneck", "Strain", "Stye", "Swollen Gums Pain", "Toothache", "Uterine contraction", "Vaginal bleeding", "Vomiting", "Wound", "Wounds(Laceration)",
+    "Wounds(Abrasion)", "Wounds(Close)", "Wounds(open)",
+
+];
+
+const DIAGNOSES = [
+    "N/A", "Abnormal Uterine Bleeding", "Abortion(Spontaneous)", "Acne Cystic(Boils)", "Acute Viral Illness", "Allergic Rhinitis", "Amoebiasis", "Anemia",
+    "Angina Pectoris", "Anovulation(Vaginal bleeding)", "Appendicitis", "Arthritis", "Asthma", "Bronchial Asthma In Acute Exacerbation", "Bronchial Asthma Not In Acute Exacerbation",
+    "Bronchitis", "Burn", "Cancer", "Cancer(Hepatic/Gastric)", "Cataract", "Cerebrovascular", "Cervical Polyp/Cancer", "Chickenpox", "Cholera", "Conjunctivitis Bacterial",
+    "Conjunctivitis Viral", "Costochondritis", "Deafness", "Deafness(noise induced)", "Dengue", "Dermatitis", "Dermatomes", "Diabetes Mellitus", "Diabetic Mellitus II;Dyslipidemia;Overweight ;To consider Peripheral Neuropathy",
+    "Dysmenorrhea", "Dyspepsia", "Ear pain/nasal pain", "Epistaxis", "Error of refraction", "Essentially Normal at the time of Examination", "Fracture", "Gastritis/Hyperacidity",
+    "Gastro Esophageal Reflux Disease", "Gastroenteritis", "German Measles", "Gestational Hypertension", "Gingivitis", "Glaucoma", "Gum Disease", "Heart Related Disease",
+    "Hepatic Abscess", "Hepatitis", "Hernia(Femoral)", "Hernia(Inguinal)", "Herpes liables/nasal's", "Herpes Zoster", "Hyperacidity", "Hyperemesis Gravidarum",
+    "Hypersensitivity Reaction", "Hypertension", "Hyperthyroidism", "Hyperventilation Syndrome", "Hypotension", "Hypothyroidism", "Infection(Cervicitis)", "Infections as folliculities  abscess/paro nychia", 
+    "Infectious/Hepatitis", "Influenza", "Insomia", "Laryngitis", "Laryngo-pharyngitis", "Leukemia", "Liver Cirrhosis", "Lymphadenitis", "Lymphoma", "Malaria", "Measles",
+    "Meniere's syndrome Vertigo", "Metacarpal tunnelsyndrome", "Metrorrhagia", "Migraine", "Migraine Headache", "Mouth sore", "Mouth Ulcer", "Mumps", "Musculoskeletal spasm", "Musculoskeletal strain",
+    "Musculoskeletal strain", "Myocardial Infarction", "Myopia", "Nasal Polyps", "Nephrolithiasis", "Neuritis",  "Non-Specific Viral Illness", "Non-ulcer Dyspepsia", "Off the Job Accident",
+    "On the Job Accident", "Otitis/Media External", "Ovarian Cyst/Tumors", "Peptic Ulcer Disease", "Peripheral Neuritis", "Pharyngitis", "Pneumoconiosis", "Pneumonia", "R/O", "R/O Acute Appendicitis",
+    "Rabies", "Rhinitis/Cold", "Rule Out Extrapulmonary TB VS. Malignancy", "Schitosomiasis", "Scoliosis", "Severe Epigastric Pain", "Sexually-Transmitted diseases", "Sinusitis", "Stomatitis",
+    "Stones", "Swollen/Foot pain/Finger Pain", "T/C", "Tendonitis", "Tension headache", "Tension Headache, Resolved", "Tetanus", "TMJ Temporomandibular Joint Syndrome", "To Consider Allergic Cough vs. Post Viral Cough",
+    "To consider Benign Paroxysmal Postural Vertigo", "To Consider Cervical Radiculopathy VS Cholelithiasis", "To consider COVID Suspect", "To Consider Hypertension ,Newly Diagnosed",
+    "To consider liver pathology", "TO Consider Muscoskeletal Strain, No Fracture", "To Consider PCOS", "To Consider Peripheral Neuropathy", "To consider Systemic Viral Illness", "To Consider Systemic Viral Illness, Covid Suspect",
+    "To consider Urinary Tract Infection , Urolithiasis", "To Consider Urolithiasis VS Cholelithiasis", "To Consider Vertigo", "Tonsillopharynngitis", "Torticollis", "Tuberculosis", "Typhoid/Paratyphoid Fever",
+    "Ulcer", "Upper Respiratory Tract Infection", "Upper Respiratory Tract Infection / To Consider Covid Suspect", "Urinary Tract Infection", "Urinary Tract Infection , Hyperuricemia , Musculoskeletal strain",
+    "Uterine Tumors", "Vaginitis", "Vascular Disturbance in extremities due to continues vibration", "Vertigo", "Viral Exanthem", "White fingers disease",
+
+];
+
+
         const els = {};
         let medicalRecords = [];
         let medicalRecordsInitialized = false;
@@ -73,7 +123,7 @@
         if (typeof metrics.lastTickTimestamp !== "number") metrics.lastTickTimestamp = Date.now();
 
         function cache() {
-            ["liveClock","authGate","loginForm","loginEmail","loginPassword","togglePassword","authError","signedInUser","logoutButton","googleFormFrame","googleFormOpenLink","formResponseCount","formEmployeeCount","formMaleCount","formFemaleCount","formLatestResponse","formResponseInput","medicalSyncStatus","displayPeriodHours","periodSelect","displayHoursLost","displayDaysLost","displayTotalCount","displayMaleCount","displayFemaleCount","displayIncidentFreeDays","displayRatio","displayCompliance","adminPanelModal","inputMale","inputFemale","inputDaysLost","adminPassword","incidentLogBody","medicalRecordsHead","incidentModal","incidentDateTimeInput","incidentPersonInput","incidentTypeInput","incidentNatureInput","incidentCauseInput","incidentDaysAbsentInput","incidentSummaryInput","incidentPasswordInput","modalTitle","passwordModal","passwordInput","monthList","medicalRecordModal","medicalRecordsBody","topMedicines","topComplaints","topDiagnoses","recordBp","recordO2","recordPulse","recordTemp","recordMedicine","medicineSuggestions","recordStaff","recordComplaint","recordDiagnosis","recordRecommendation","supplyItem","supplyUnit","supplyDelivered","supplyConsumed","supplyReorder"].forEach(id => els[id] = document.getElementById(id));
+            ["liveClock","authGate","loginForm","loginEmail","loginPassword","togglePassword","authError","signedInUser","logoutButton","googleFormFrame","googleFormOpenLink","formResponseCount","formEmployeeCount","formMaleCount","formFemaleCount","formLatestResponse","formResponseInput","medicalSyncStatus","displayPeriodHours","periodSelect","displayHoursLost","displayDaysLost","displayTotalCount","displayMaleCount","displayFemaleCount","displayIncidentFreeDays","displayRatio","displayCompliance","adminPanelModal","inputMale","inputFemale","inputDaysLost","adminPassword","incidentLogBody","medicalRecordsHead","incidentModal","incidentDateTimeInput","incidentPersonInput","incidentTypeInput","incidentNatureInput","incidentCauseInput","incidentDaysAbsentInput","incidentSummaryInput","incidentPasswordInput","modalTitle","passwordModal","passwordInput","monthList","medicalRecordModal","medicalRecordsBody","topMedicines","topComplaints","topDiagnoses","recordBp","recordO2","recordPulse","recordTemp","recordMedicine","medicineSuggestions","recordStaff","recordComplaint","complaintSuggestions","recordDiagnosis","diagnosisSuggestions","recordRecommendation","supplyItem","supplyUnit","supplyDelivered","supplyConsumed","supplyReorder"].forEach(id => els[id] = document.getElementById(id));
             els.menuItems = document.querySelectorAll(".menu-item");
             els.appSections = document.querySelectorAll(".app-section");
         }
@@ -361,33 +411,68 @@
         function setupMedicalRecords() {
             const medicineList = document.getElementById("medicineList");
             if (medicineList) medicineList.innerHTML = MEDICINES.map(medicine => `<option value="${escapeHtml(medicine)}"></option>`).join("");
-            els.recordMedicine.addEventListener("input", renderMedicineSuggestions);
-            els.recordMedicine.addEventListener("focus", renderMedicineSuggestions);
-            els.recordMedicine.addEventListener("keydown", event => {
-                if (event.key === "Escape") hideMedicineSuggestions();
-            });
+            setupClinicalAutocomplete("recordMedicine", "medicineSuggestions", () => MEDICINES, "medicine");
+            setupClinicalAutocomplete("recordComplaint", "complaintSuggestions", () => CHIEF_COMPLAINTS, "chief complaint");
+            setupClinicalAutocomplete("recordDiagnosis", "diagnosisSuggestions", () => DIAGNOSES, "diagnosis");
             document.addEventListener("click", event => {
-                if (!event.target.closest(".medicine-picker")) hideMedicineSuggestions();
+                if (!event.target.closest(".medicine-picker")) hideAllClinicalSuggestions();
             });
             if (currentUser) loadMedicalRecords();
         }
 
+        function clinicalListValues(fieldAliases) {
+            const values = new Set();
+            medicalRecords.forEach(record => {
+                const value = clinicalValue(record, fieldAliases);
+                if (value) values.add(String(value).trim());
+            });
+            return [...values];
+        }
+
+        function setupClinicalAutocomplete(inputId, suggestionsId, getOptions, label) {
+            const input = els[inputId];
+            if (!input) return;
+            input.addEventListener("input", () => renderClinicalSuggestions(inputId, suggestionsId, getOptions, label));
+            input.addEventListener("focus", () => renderClinicalSuggestions(inputId, suggestionsId, getOptions, label));
+            input.addEventListener("keydown", event => {
+                if (event.key === "Escape") hideClinicalSuggestions(suggestionsId);
+            });
+        }
+
+        function hideClinicalSuggestions(suggestionsId) {
+            const suggestions = els[suggestionsId];
+            if (!suggestions) return;
+            suggestions.hidden = true;
+            suggestions.innerHTML = "";
+        }
+
+        function hideAllClinicalSuggestions() {
+            ["medicineSuggestions", "complaintSuggestions", "diagnosisSuggestions"].forEach(hideClinicalSuggestions);
+        }
+
+        function renderClinicalSuggestions(inputId, suggestionsId, getOptions, label) {
+            const input = els[inputId];
+            const suggestions = els[suggestionsId];
+            if (!input || !suggestions) return;
+            const query = input.value.trim().toLowerCase();
+            const matches = getOptions().filter(value => value.toLowerCase().includes(query)).slice(0, 8);
+            const dataAttribute = inputId === "recordMedicine" ? "data-medicine" : "data-value";
+            suggestions.innerHTML = matches.length
+                ? matches.map(value => `<button type="button" role="option" ${dataAttribute}="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join("")
+                : `<div class="no-medicine-match">No matching ${label}</div>`;
+            suggestions.hidden = false;
+            suggestions.querySelectorAll("button").forEach(button => button.addEventListener("click", () => {
+                input.value = button.dataset.medicine || button.dataset.value || "";
+                hideClinicalSuggestions(suggestionsId);
+            }));
+        }
+
         function hideMedicineSuggestions() {
-            els.medicineSuggestions.hidden = true;
-            els.medicineSuggestions.innerHTML = "";
+            hideClinicalSuggestions("medicineSuggestions");
         }
 
         function renderMedicineSuggestions() {
-            const query = els.recordMedicine.value.trim().toLowerCase();
-            const matches = MEDICINES.filter(medicine => medicine.toLowerCase().includes(query)).slice(0, 8);
-            els.medicineSuggestions.innerHTML = matches.length
-                ? matches.map(medicine => `<button type="button" role="option" data-medicine="${escapeHtml(medicine)}">${escapeHtml(medicine)}</button>`).join("")
-                : `<div class="no-medicine-match">No matching medicine</div>`;
-            els.medicineSuggestions.hidden = false;
-            els.medicineSuggestions.querySelectorAll("[data-medicine]").forEach(button => button.addEventListener("click", () => {
-                els.recordMedicine.value = button.dataset.medicine;
-                hideMedicineSuggestions();
-            }));
+            renderClinicalSuggestions("recordMedicine", "medicineSuggestions", () => MEDICINES, "medicine");
         }
 
         function animateRefreshButtons() {
@@ -421,6 +506,35 @@
             return String(record?.rowNumber || record?.row || record?.rowIndex || record?.id || "");
         }
 
+        async function mergeClinicalRecordsFromSupabase(records) {
+            if (!GOOGLE_SHEETS_API_URL || !currentUser?.access_token || !records.length) return records;
+            try {
+                const clinicalRows = await supabaseRequest(
+                    `${MEDICAL_TABLE}?select=id,form_details,vitals_bp,vitals_o2,vitals_pulse_rate,vitals_temperature,medicine_given,attending_staff,chief_complaint,diagnosis,recommendation`,
+                    { method: "GET", cache: "no-store", headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } }
+                );
+                const bySheetRow = new Map();
+                (Array.isArray(clinicalRows) ? clinicalRows : []).forEach(row => {
+                    const details = formDetails(row);
+                    const sourceRow = details._source_sheet_row || details["_source_sheet_row"];
+                    if (sourceRow) bySheetRow.set(String(sourceRow), row);
+                    if (row.id !== undefined && row.id !== null) bySheetRow.set(`id:${row.id}`, row);
+                });
+                records.forEach(record => {
+                    const clinical = bySheetRow.get(String(record.rowNumber)) || bySheetRow.get(`id:${record.id}`);
+                    if (!clinical) return;
+                    ["vitals_bp", "vitals_o2", "vitals_pulse_rate", "vitals_temperature", "medicine_given", "attending_staff", "chief_complaint", "diagnosis", "recommendation"].forEach(field => {
+                        record[field] = clinical[field] || "";
+                    });
+                });
+            } catch (error) {
+                // The sheet rows remain usable even if the clinical mirror is
+                // temporarily unavailable; the next polling cycle retries it.
+                console.warn("Clinical fields could not be merged from Supabase.", error);
+            }
+            return records;
+        }
+
         async function loadMedicalRecords() {
             animateRefreshButtons();
             if (!currentUser?.access_token) {
@@ -446,8 +560,8 @@
                         const rawRecords = Array.isArray(payload)
                             ? payload
                             : (payload.records || payload.rows || payload.data?.records || payload.data?.rows || payload.data?.values || []);
-                        const nextRecords = rawRecords.map(record => normalizeMedicalRecord(record, sheetHeaders));
-                        // Apps Script merges clinical fields from Supabase. Keep a
+                        const nextRecords = await mergeClinicalRecordsFromSupabase(rawRecords.map(record => normalizeMedicalRecord(record, sheetHeaders)));
+                        // Keep a
                         // stable key for pending optimistic edits across refreshes.
                         nextRecords.forEach(record => {
                             if (!record.id && record.rowNumber) record.id = String(record.rowNumber);
@@ -740,7 +854,7 @@
         function openMedicalRecordModal(index) {
             editingMedicalRecord = medicalRecords[index];
             ["Bp","O2","Pulse","Temp","Staff","Complaint","Diagnosis","Recommendation"].forEach(name => els[`record${name}`].value = "");
-            hideMedicineSuggestions();
+            hideAllClinicalSuggestions();
             els.recordBp.value = stripVitalUnit(clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.bp), "mmHg");
             els.recordO2.value = stripVitalUnit(clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.o2), "%");
             els.recordPulse.value = stripVitalUnit(clinicalValue(editingMedicalRecord, MEDICAL_FIELD_ALIASES.pulse), "bpm");
