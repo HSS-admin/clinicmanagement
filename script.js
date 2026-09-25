@@ -4,7 +4,7 @@
         // Leave blank to keep using the existing Supabase medical_records table.
         // Add the deployed Apps Script /exec URL here after deploying the Sheets API.
         // A placeholder URL must remain disabled; otherwise every refresh fails with "Failed to fetch".
-        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbzmaP9P_WrhhlnI3CCVQdOT8ywHJO1UUG8eHoQwfGKUCd8n9tbwSU6_ZJBBcd5Jb8vAAQ/exec";
+        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbxF5bkH1SlCYP7Cj14plNh9mspojciOkDbggIwN40DABbgDmdATFj5e2w3ARgsaOt3QdQ/exec";
         const GOOGLE_SHEET_TAB = "Form Responses 1";
         const GOOGLE_SHEETS_REQUEST_TIMEOUT_MS = 30000;
         const SUPABASE_URL = "https://waklvnbjhjqyykgdfacg.supabase.co";
